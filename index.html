@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>motion</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+           font-family: system-ui, -apple-system, sans-serif; background: #0f1115; color: #e8e8ea; }
+    h1 { font-size: clamp(2.5rem, 10vw, 6rem); margin: 0; letter-spacing: -0.03em; }
+    .dot { display: inline-block; width: .6em; height: .6em; border-radius: 50%;
+           background: #6c8cff; margin-left: .1em; animation: bounce 1.2s ease-in-out infinite; }
+    @keyframes bounce { 50% { transform: translateY(-0.6em); } }
+    p { opacity: .6; text-align: center; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>motion<span class="dot"></span></h1>
+    <p>GitHub Pages로 배포됨</p>
+  </main>
+</body>
+</html>
