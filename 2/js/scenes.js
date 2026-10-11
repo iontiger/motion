@@ -470,7 +470,19 @@ function sSkies(B, t, F) {
   card('skies', CX, 520 + (1 - e) * 600 + fl, 1100, 619, { rot: 0.01, zoom: 1.02 + pr(B, 72, 80) * 0.05, border: 14, tape: C.sky2, tapeX: -360 });
   cloudLayer(t, 1010, 5, 1.3, 70, 0.95, 17);
   const lp = popE(B, 73, 0.5, 2.2);
-  if (lp > 0) { g.save(); g.translate(CX, 140); g.scale(lp, lp); pill('그리고 하늘길까지 · DentPhoto Painted Skies', 0, 0, { size: 40, fill: C.white, color: C.blue, f: 'kr', dot: C.sky2 }); g.restore(); }
+  if (lp > 0) { g.save(); g.translate(CX, 140); g.scale(lp, lp); pill('바람을 따라 · 비행기 버전', 0, 0, { size: 40, fill: C.white, color: C.blue, f: 'kr', dot: C.sky2 }); g.restore(); }
+  // still in the making: COMING SOON stamp on the card corner
+  const cs = popE(B, 74.5, 0.45, 2.6);
+  if (cs > 0) {
+    const wob = Math.sin(t * 2.4) * 0.02 + env(KICKS, t, 10) * 0.015;
+    g.save(); g.translate(CX + 470, 310 + fl); g.rotate(0.12 + wob); g.scale(cs, cs);
+    rr(-210 + 4, -78 + 12, 420, 156, 40); g.fillStyle = SH; g.fill();
+    rr(-210, -78, 420, 156, 40); g.fillStyle = C.coral; g.fill();
+    g.lineWidth = 8; g.strokeStyle = C.white; g.stroke();
+    text('COMING SOON', 0, -18, { size: 58, w: 700, f: 'round', color: C.white, ls: 1 });
+    text('지금 만드는 중이에요', 0, 40, { size: 30, f: 'kr', color: C.white });
+    g.restore();
+  }
   rise('구름 사이를 지나, 바다 위의 작은 섬으로.', CX, 912, { size: 56, f: 'kr', color: C.ink, outline: 14, ocol: C.white }, B, 74, 0.6, 0.025);
   // little plane looping across
   const pp = pr(B, 74, 79.5);
