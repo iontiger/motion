@@ -186,8 +186,8 @@ async function exportMP4(fps = 60, onProgress = () => {}) {
   venc.configure(vconf);
   const aenc = new AudioEncoder({ output: (c, m) => muxer.addAudioChunk(c, m), error: (e) => (err = e) });
   aenc.configure(aconf);
-  const buf = S.buf, sr = buf.sampleRate, L = buf.getChannelData(0), R = buf.getChannelData(1);
-  const total = Math.floor(DUR * sr);
+  const buf = S.buf, sr = buf.sampleRate, L = buf.getChannelData(0), R = buf.getChannelData(Math.min(1, buf.numberOfChannels - 1));
+  const total = Math.min(buf.length, Math.floor(DUR * sr));
   for (let i = 0; i < total; i += 4800) {
     const n = Math.min(4800, total - i), data = new Float32Array(n * 2);
     data.set(L.subarray(i, i + n), 0); data.set(R.subarray(i, i + n), n);
@@ -219,7 +219,7 @@ async function exportUI() {
   try {
     const blob = await exportMP4(60, (p) => { bar.style.width = `${p * 100}%`; lab.textContent = `프레임 렌더링 중… ${Math.round(p * 100)}%`; });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = 'dont-panic-ewy-ewt.mp4';
+    a.href = URL.createObjectURL(blob); a.download = 'semiconductor-season.mp4';
     document.body.appendChild(a); a.click(); a.remove();
     lab.textContent = '완료! 다운로드를 확인하세요.';
   } catch (e) {
@@ -246,20 +246,20 @@ window.__chunk = (i, size) => {
   return btoa(s);
 };
 window.__audioStats = () => {
-  const b = S.buf, sr = b.sampleRate, L = b.getChannelData(0), R = b.getChannelData(1);
-  const sect = [[0, 16, 'intro'], [16, 32, 'title'], [32, 64, 'same'], [64, 92, 'drop'], [92, 100, 'why'], [100, 140, 'weight'], [140, 168, 'memory'], [168, 200, 'us'], [200, 240, 'close'], [240, 274, 'outro']];
-  const res = { peakBefore: b._peakBefore, sections: {} };
-  for (const [a, z, n] of sect) {
-    let s = 0, pk = 0; const i0 = Math.floor(a * SPB * sr), i1 = Math.min(L.length, Math.floor(z * SPB * sr));
+  const b = S.buf, sr = b.sampleRate, L = b.getChannelData(0), R = b.getChannelData(Math.min(1, b.numberOfChannels - 1));
+  const res = { duration: b.length / sr, sampleRate: sr, channels: b.numberOfChannels, sections: {} };
+  SECTS.forEach((x, k) => {
+    const a = x.t, z = k + 1 < SECTS.length ? SECTS[k + 1].t : DUR, n = `${k}:${x.name || 'END'}`;
+    let s = 0, pk = 0; const i0 = Math.floor(a * sr), i1 = Math.min(L.length, Math.floor(z * sr));
     for (let i = i0; i < i1; i++) { const m = (L[i] + R[i]) / 2; s += m * m; pk = Math.max(pk, Math.abs(L[i]), Math.abs(R[i])); }
     res.sections[n] = { rmsDb: +(10 * Math.log10(s / (i1 - i0) + 1e-12)).toFixed(1), peak: +pk.toFixed(3) };
-  }
+  });
   return res;
 };
 window.__wavChunk = null;
 
 /* ---------------- boot ---------------- */
-const POSTER_T = 23 * SPB; // title card as the still preview
+const POSTER_T = 1.9; // title card as the still preview
 async function boot() {
   const qs = new URLSearchParams(location.search);
   const st = $('status');
@@ -271,12 +271,16 @@ async function boot() {
   S.dirty = false; // keep the still preview until the viewer plays or seeks
   window.__fontsReady = true;
   if (qs.has('noaudio')) { window.__ready = true; requestAnimationFrame(loop); return; }
-  st.textContent = '사운드트랙 합성 중…';
-  await new Promise((r) => setTimeout(r, 30));
-  const t0 = performance.now();
-  S.buf = await renderSong();
+  st.textContent = '노래 불러오는 중…';
+  try {
+    const res = await fetch('audio/song.mp3');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    S.buf = await new OfflineAudioContext(2, 1, 48000).decodeAudioData(await res.arrayBuffer());
+  } catch (e) {
+    st.textContent = '노래를 불러오지 못했습니다: ' + e.message;
+    return;
+  }
   ENERGY = analyzeEnergy(S.buf);
-  console.log(`audio rendered in ${Math.round(performance.now() - t0)}ms, peak before norm ${S.buf._peakBefore.toFixed(3)}`);
   S.ready = true;
   st.textContent = '';
   document.body.classList.add('ready');
@@ -308,10 +312,10 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'Home' || e.key === '0') seek(0);
 });
 const marks = $('marks');
-[[0, '인트로'], [32, '같은 잣대'], [64, '고점 대비'], [100, '지수 비중'], [140, '메모리'], [168, '미국'], [200, '마무리'], [240, '쫄지마세요']].forEach(([b, l]) => {
+[[0, '1절'], [18.44, '프리코러스'], [29.04, '후렴'], [57.64, '2절'], [97.34, '후렴'], [128.1, '브리지'], [147.05, '아웃트로'], [165.4, '쫄지마세요']].forEach(([t, l]) => {
   const s = document.createElement('button');
-  s.className = 'mark'; s.style.left = `${((b * SPB) / DUR) * 100}%`; s.title = l; s.textContent = l;
-  s.addEventListener('click', () => seek(b * SPB + 0.001));
+  s.className = 'mark'; s.style.left = `${(t / DUR) * 100}%`; s.title = l; s.textContent = l;
+  s.addEventListener('click', () => seek(Math.max(0, t - 0.3)));
   marks.appendChild(s);
 });
 boot();

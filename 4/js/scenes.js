@@ -1,26 +1,41 @@
 'use strict';
 /* ============================================================
    SCENES — every frame is a pure function of time t.
-   B = t / SPB (time in beats). Cue sheet is shared with music.js
+   B = t / SPB (time in beats). Each lyric line has its own graphic,
+   cued to the words it is about; the karaoke line at the bottom is
+   driven by the per-character times in lyrics.js.
    ============================================================ */
 let ENERGY = null;
 const energyAt = (t) => { if (!ENERGY) return 0.5; const i = clamp(Math.floor(t * 60), 0, ENERGY.length - 1); return ENERGY[i]; };
-const BREAKS = [16, 64, 92, 120, 184, 240];                    // drops after a half-beat of silence
-const inBreak = (B) => BREAKS.some((b) => B >= b - 0.5 && B < b);
+const KICKS = BEATS;
+const SB = (sec) => sec / SPB;
+const LB = (i) => SB(LYRICS[i].t0);            // line start, in beats
+const LE = (i) => SB(LYRICS[i].t1);            // line leaves
+// beat at which word `w` of line i is sung
+const CW = (i, w) => { const L = LYRICS[i], j = L.text.indexOf(w); return SB(j < 0 ? L.t0 : L.ct[j]); };
+const C2 = SB(LYRICS[22].t0 - LYRICS[8].t0);   // chorus 2 = chorus 1 shifted
+const DROPS = [LYRICS[8].t0, LYRICS[22].t0];   // chorus drops (s)
+const IMPACTS = [[0.74, 0.6], [18.44, 0.5], [29.04, 1.1], [57.64, 0.6], [77.96, 0.5], [97.34, 1.1], [128.1, 0.7], [147.05, 0.7], [165.4, 0.9]];
+function impactEnv(t, k = 4) {
+  let s = 0;
+  for (const [it, v] of IMPACTS) { if (it > t) break; const dt = t - it; if (dt < 2) s += v * Math.exp(-dt * k); }
+  return s;
+}
 
-const SECT = [
-  { b: 0, tint: '#0B1430', cols: [C.cyan, C.pink, C.ewt] },
-  { b: 16, tint: '#2A0B26', cols: [C.pink, C.yellow, C.cyan] },
-  { b: 32, tint: '#0A1A33', cols: [C.cyan, C.ewt, C.ewy] },
-  { b: 64, tint: '#2B1206', cols: [C.ewy, C.red, C.yellow] },
-  { b: 92, tint: '#2A0B26', cols: [C.pink, C.violet, C.cyan] },
-  { b: 100, tint: '#22091A', cols: [C.pink, C.tsmc, C.samsung] },
-  { b: 140, tint: '#150C33', cols: [C.violet, C.cyan, C.hynix] },
-  { b: 168, tint: '#071A36', cols: [C.ewt, C.candle, C.mint] },
-  { b: 200, tint: '#231A05', cols: [C.gold, C.mint, C.red] },
-  { b: 240, tint: '#2A0B26', cols: [C.pink, C.yellow, C.cyan, C.ewy, C.mint] },
+/* song sections: header, background tint, lyric colour, progress bar */
+const SECTS = [
+  { t: 0, name: 'VERSE 1', sub: '달러로 본 두 시장', col: C.cyan, tint: '#0A1A33' },
+  { t: 18.1, name: 'PRE-CHORUS', sub: '축과 파도', col: C.violet, tint: '#150C33' },
+  { t: 28.9, name: 'CHORUS', sub: '비중과 사이클', col: C.pink, tint: '#2A0B26' },
+  { t: 56.6, name: 'VERSE 2', sub: '기둥과 무게', col: C.ewy, tint: '#2B1206' },
+  { t: 77.7, name: 'PRE-CHORUS', sub: '수요와 재고', col: C.violet, tint: '#150C33' },
+  { t: 97.2, name: 'CHORUS', sub: '비중과 사이클', col: C.pink, tint: '#2A0B26' },
+  { t: 124.7, name: 'BRIDGE', sub: '구성과 환율', col: C.mint, tint: '#06231C' },
+  { t: 146.95, name: 'OUTRO', sub: '서로 다른 계절', col: C.gold, tint: '#231A05' },
+  { t: 165.5, name: '', sub: '', col: C.pink, tint: '#2A0B26' },
 ];
-const sectAt = (B) => { let s = SECT[0]; for (const x of SECT) if (B >= x.b) s = x; return s; };
+const sectAt = (t) => { let s = SECTS[0]; for (const x of SECTS) if (t >= x.t) s = x; return s; };
+const SCOLS = { 'VERSE 1': [C.cyan, C.ewt, C.ewy], 'PRE-CHORUS': [C.violet, C.cyan, C.hynix], CHORUS: [C.pink, C.yellow, C.cyan], 'VERSE 2': [C.ewy, C.red, C.samsung], BRIDGE: [C.mint, C.cyan, C.gold], OUTRO: [C.gold, C.pink, C.ewt], '': [C.pink, C.yellow, C.cyan] };
 
 /* ---------------- background ---------------- */
 let GRID = null;
@@ -34,69 +49,56 @@ function makeGrid() {
   for (let i = 0; i <= c.width; i += 240) for (let j = 0; j <= c.height; j += 240) x.fillRect(i - 2, j - 2, 4, 4);
   return c;
 }
-// faint background candles drifting left
-const BGC = Array.from({ length: 64 }, (_, i) => ({ o: rnd(i, 11), c: rnd(i, 12), h: rnd(i, 13) }));
+const BGC = Array.from({ length: 64 }, (_, i) => ({ c: rnd(i, 12), h: rnd(i, 13) }));
 function bgCandles(t, alpha) {
   if (alpha <= 0) return;
   const a0 = g.globalAlpha, sp = 34, off = (t * 40) % sp;
   let v = 0.5;
   for (let i = 0; i < BGC.length; i++) {
-    const k = BGC[i];
-    const x = i * sp - off - 60;
+    const k = BGC[i], x = i * sp - off - 60;
     const o = v, c = clamp(v + (k.c - 0.5) * 0.18, 0.1, 0.9); v = c;
-    const y0 = H * 0.78 - o * 520, y1 = H * 0.78 - c * 520;
-    const up = c >= o;
+    const y0 = H * 0.7 - o * 480, y1 = H * 0.7 - c * 480, up = c >= o;
     g.globalAlpha = a0 * alpha;
     g.strokeStyle = up ? 'rgba(244,246,255,0.55)' : C.candle; g.lineWidth = 2;
     line(x, Math.min(y0, y1) - k.h * 30, x, Math.max(y0, y1) + k.h * 26);
-    if (up) { g.strokeRect(x - 9, Math.min(y0, y1), 18, Math.max(3, Math.abs(y1 - y0))); }
+    if (up) g.strokeRect(x - 9, Math.min(y0, y1), 18, Math.max(3, Math.abs(y1 - y0)));
     else { g.fillStyle = C.candle; g.fillRect(x - 9, Math.min(y0, y1), 18, Math.max(3, Math.abs(y1 - y0))); }
   }
   g.globalAlpha = a0;
 }
 function background(B, t, F) {
-  const s = sectAt(B);
+  const s = sectAt(t), cols = SCOLS[s.name];
   const gr = g.createLinearGradient(0, 0, W * 0.4, H);
   gr.addColorStop(0, C.bg); gr.addColorStop(1, s.tint);
   fillAll(gr);
-  // neon glows
   for (let i = 0; i < 3; i++) {
-    const x = (0.12 + 0.38 * i) * W + Math.sin(t * 0.21 + i * 2) * 160, y = (i % 2 ? 0.85 : 0.18) * H + Math.cos(t * 0.17 + i) * 100;
-    const r = 560 + 120 * F.kick;
+    const x = (0.12 + 0.38 * i) * W + Math.sin(t * 0.21 + i * 2) * 160, y = (i % 2 ? 0.8 : 0.18) * H + Math.cos(t * 0.17 + i) * 100;
+    const r = 560 + 140 * F.kick * F.energy, col = cols[i % cols.length];
     const rg = g.createRadialGradient(x, y, 0, x, y, r);
-    rg.addColorStop(0, s.cols[i % s.cols.length] + '30'); rg.addColorStop(1, s.cols[i % s.cols.length] + '00');
+    rg.addColorStop(0, col + '30'); rg.addColorStop(1, col + '00');
     g.fillStyle = rg; g.fillRect(x - r, y - r, r * 2, r * 2);
   }
   g.drawImage(GRID, -((t * 24) % 60) - 120, -((t * 8) % 60) - 120);
-  bgCandles(t, B < 16 ? 0.35 : B >= 240 ? 0.16 : 0.07);
-  // beat floor line
-  const k = F.kick;
-  g.fillStyle = s.cols[0]; g.globalAlpha = 0.08 + k * 0.18; g.fillRect(0, H - 6, W, 6); g.globalAlpha = 1;
+  bgCandles(t, s.name === '' ? 0.16 : 0.06);
 }
 
 /* ---------------- camera & post ---------------- */
 function camera(B, t) {
-  const kick = env(KICKS, t, 10), imp = impactEnv(t, 5);
-  let amp = imp * 9;
+  const kick = env(KICKS, t, 10) * (0.4 + 0.6 * energyAt(t)), imp = impactEnv(t, 5);
+  const amp = imp * 9;
   let z = 1 + kick * 0.008 + imp * 0.012;
-  let sx = Math.sin(t * 0.31) * 6, sy = Math.cos(t * 0.23) * 4;
-  for (const b of BREAKS) { // tension: push-in during the riser, freeze in the gap
-    const len = b === 240 ? 7.5 : 3.5;
-    if (B >= b - len && B < b) z += Ease.inQuad(pr(B, b - len, b - 0.5)) * 0.045;
-  }
-  if (inBreak(B)) { amp = 0; sx *= 0.3; sy *= 0.3; }
-  sx += vnoise(t * 16, 1) * amp; sy += vnoise(t * 16, 2) * amp;
-  const r = vnoise(t * 8, 3) * amp * 0.0006;
-  return { sx, sy, r, z };
+  for (const d of DROPS) if (t >= d - 2.4 && t < d) z += Ease.inQuad(pr(t, d - 2.4, d - 0.15)) * 0.04;
+  const sx = Math.sin(t * 0.31) * 6 + vnoise(t * 16, 1) * amp, sy = Math.cos(t * 0.23) * 4 + vnoise(t * 16, 2) * amp;
+  return { sx, sy, r: vnoise(t * 8, 3) * amp * 0.0006, z };
 }
-const FLASHES = [[16, 0.85], [32, 0.25], [64, 0.7], [92, 0.7], [100, 0.25], [120, 0.7], [140, 0.2], [168, 0.25], [184, 0.7], [200, 0.25], [240, 0.9], [268, 0.6]];
-const GLITCHES = [[8.5, 0.5], [9, 0.35], [16, 1], [20, 0.6], [32, 0.4], [64, 0.8], [84, 0.9], [92, 1], [100, 0.4], [120, 0.8], [168, 0.4], [184, 0.8], [200, 0.4], [240, 1], [240.5, 0.6], [268, 0.7]];
+const FLASHES = [[29.04, 0.8], [97.34, 0.8], [57.64, 0.3], [128.1, 0.35], [147.05, 0.35], [165.4, 0.6]];
+const GLITCHES = [[0.74, 0.5], [9.6, 0.5], [29.04, 1], [41.8, 0.6], [51.9, 0.5], [68.64, 0.6], [97.34, 1], [110.1, 0.6], [120.2, 0.5], [128.1, 0.5], [165.4, 0.8]];
 function postParams(B, t) {
-  const kick = env(KICKS, t, 12), imp = impactEnv(t, 4.5);
+  const kick = env(KICKS, t, 12) * energyAt(t), imp = impactEnv(t, 4.5);
   let flash = 0, glitch = 0;
-  for (const [fb, s] of FLASHES) { const d = (B - fb) * SPB; if (d >= 0 && d < 0.8) flash = Math.max(flash, s * Math.exp(-d * 8)); }
-  for (const [gb, s] of GLITCHES) { const d = (B - gb) * SPB; if (d >= 0 && d < 0.5) glitch = Math.max(glitch, s * Math.exp(-d * 9)); }
-  return { ca: 0.15 + imp * 0.9 + kick * 0.25 + glitch * 1.5, flash, bloom: 0.55 + kick * 0.2, grain: 0.03, vig: 0.75, glitch };
+  for (const [ft, s] of FLASHES) { const d = t - ft; if (d >= 0 && d < 0.8) flash = Math.max(flash, s * Math.exp(-d * 8)); }
+  for (const [gt, s] of GLITCHES) { const d = t - gt; if (d >= 0 && d < 0.5) glitch = Math.max(glitch, s * Math.exp(-d * 9)); }
+  return { ca: 0.15 + imp * 0.8 + kick * 0.3 + glitch * 1.5, flash, bloom: 0.55 + kick * 0.2, grain: 0.03, vig: 0.75, glitch };
 }
 
 /* ---------------- layout helpers ---------------- */
@@ -106,19 +108,12 @@ function group(B, a, z, fn, o = {}) {
   const eout = Ease.inCubic(pr(B, z - (o.dout || 0.45), z));
   g.save();
   g.globalAlpha *= Math.min(1, ein * 1.4) * (1 - eout);
-  g.translate((1 - ein) * (o.dx || 0) + eout * (o.dxo || 0), (1 - ein) * (o.dy != null ? o.dy : 70) - eout * (o.dyo != null ? o.dyo : 40));
+  g.translate((1 - ein) * (o.dx || 0), (1 - ein) * (o.dy != null ? o.dy : 60) - eout * (o.dyo != null ? o.dyo : 40));
   fn(ein, eout);
   g.restore();
 }
 function fitSize(s, maxW, maxSize, w = 900, f = null) { return Math.min(maxSize, (maxW / textW(s, 100, w, null, f)) * 100); }
 function tag(s, x, y) { pill(s, x, y, { size: 20, w: 700, fill: 'rgba(244,246,255,0.1)', color: C.inkD, align: 'right', h: 34, padX: 14 }); }
-function marker(str, sub, x, y, o, p, col = C.yellow) {
-  if (p <= 0) return;
-  const [a, b] = subRange(str, sub, x, o);
-  g.fillStyle = col; g.globalAlpha *= 0.9;
-  rr(a - 8, y - o.size * 0.02, (b - a + 16) * Ease.outCubic(p), o.size * 0.42, 6); g.fill();
-  g.globalAlpha /= 0.9;
-}
 function glowPath(pts, col, lw, blur = 22) {
   if (pts.length < 2) return;
   g.save();
@@ -128,220 +123,39 @@ function glowPath(pts, col, lw, blur = 22) {
   g.restore();
 }
 function dashed(x1, y1, x2, y2, col, lw = 3, d = [10, 8]) { g.strokeStyle = col; g.lineWidth = lw; g.setLineDash(d); line(x1, y1, x2, y2); g.setLineDash([]); }
-// glowing vertical bracket with arrow head at the bottom
 function dropBracket(x, y0, y1, col, p) {
   if (p <= 0) return;
   const ye = lerp(y0, y1, Ease.outCubic(p));
-  g.save(); g.shadowColor = col; g.shadowBlur = 16;
-  g.strokeStyle = col; g.lineWidth = 4;
+  g.save(); g.shadowColor = col; g.shadowBlur = 16; g.strokeStyle = col; g.lineWidth = 4;
   line(x - 14, y0, x + 14, y0); line(x, y0, x, ye);
   if (p > 0.95) { g.fillStyle = col; g.beginPath(); g.moveTo(x, y1 + 4); g.lineTo(x - 13, y1 - 18); g.lineTo(x + 13, y1 - 18); g.closePath(); g.fill(); }
   g.restore();
 }
-// the "쫄지마세요" logotype: extruded, gradient filled, neon glow, rgb split
+function neonBox(x, y, w, h, col, r = 30, fill = C.panel) {
+  g.save(); g.shadowColor = col; g.shadowBlur = 30; rr(x, y, w, h, r); g.fillStyle = fill; g.fill(); g.restore();
+  g.lineWidth = 3; g.strokeStyle = col; rr(x, y, w, h, r); g.stroke();
+}
+function bigNum(s, x, y, size, col, o = {}) { return chars(s, x, y, Object.assign({ size, f: 'num', color: col, glow: col, blur: 26, ls: 1 }, o)).w; }
+// pop a drawing in at (x, y) with a back-eased scale
+function popAt(B, b0, x, y, fn, dur = 0.45, s = 2.2) {
+  const p = popE(B, b0, dur, s);
+  if (p <= 0) return;
+  g.save(); g.translate(x, y); g.scale(p, p); fn(p); g.restore();
+}
+// the title logotype: extruded, gradient filled, neon glow, rgb split
 function logo(s, x, y, size, B, b0, o = {}) {
   const st = { size, f: 'disp', ls: -size * 0.02, grad: o.grad || [C.yellow, C.ewy, C.pink], glow: o.glow || C.pink, blur: o.blur || 40, ext: { col: o.ext || '#5A0F3C', n: Math.round(size / 22), dx: size * 0.012, dy: size * 0.018 }, rgb: o.rgb != null ? o.rgb : size * 0.03, align: o.align };
-  return chars(s, x, y, st, (i, n) => {
+  return chars(s, x, y, st, (i) => {
     const lp = pr(B, b0 + i * 0.06, b0 + i * 0.06 + 0.4);
     if (lp <= 0) return false;
     const e = Ease.outExpo(lp), k = Math.exp(-(B - b0 - i * 0.06) * SPB * 6);
     return { s: lerp(2.4, 1, e), a: Math.min(1, lp * 5), y: vnoise(B * 3 + i, 4) * 6, r: (rnd(i, 9) - 0.5) * 0.3 * (1 - e), rgb: 0.25 + k * 2 };
   });
 }
-// scrolling ticker tape
-const TAPE = [['EWY', '150.44', -3.70], ['EWT', '106.26', -2.64], ['TSMC', '10월', -6], ['삼성전자', '10월', -20], ['SK하이닉스', '10월', -33], ['NCLD', '10월', -32], ['MAGS', '10월', -4]];
-function tape(y, t, speed, alpha = 1, h = 64) {
-  const a0 = g.globalAlpha; g.globalAlpha = a0 * alpha;
-  g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(-40, y - h / 2, W + 80, h);
-  g.fillStyle = C.ewy; g.fillRect(-40, y - h / 2, W + 80, 2); g.fillRect(-40, y + h / 2 - 2, W + 80, 2);
-  const items = TAPE.map(([n, p, c]) => ({ n, p, c, w: textW(n, 30, 900) + textW(p, 30, 400, null, 'num') + textW(`${c > 0 ? '+' : '−'}${Math.abs(c)}%`, 30, 400, null, 'num') + 120 }));
-  const tot = items.reduce((s, it) => s + it.w, 0);
-  let x = -((t * speed) % tot);
-  while (x < W) {
-    for (const it of items) {
-      if (x > W) break;
-      if (x + it.w > -40) {
-        let xx = x + 30;
-        xx += text(it.n, xx, y + 1, { size: 30, w: 900, align: 'left' }) + 16;
-        xx += text(it.p, xx, y + 3, { size: 30, f: 'num', color: C.inkD, align: 'left', ls: 1 }) + 16;
-        const col = it.c < 0 ? C.candle : C.red;
-        g.fillStyle = col; g.beginPath(); g.moveTo(xx, y - 8); g.lineTo(xx + 16, y - 8); g.lineTo(xx + 8, y + 6); g.closePath(); g.fill();
-        text(`${it.c > 0 ? '+' : '−'}${Math.abs(it.c)}%`, xx + 24, y + 3, { size: 30, f: 'num', color: col, align: 'left', ls: 1 });
-      }
-      x += it.w;
-    }
-  }
-  g.globalAlpha = a0;
-}
+// graphics live in y 170–830; the lyric band is below
+const SY0 = 170;
 
-/* ---------------- transitions ---------------- */
-function bandsIn(B, b, cols, dur = 0.8) {
-  if (B < b - dur || B >= b) return;
-  cols.forEach((c, k) => {
-    const p = Ease.inOutCubic(pr(B, b - dur + k * 0.12, b - 0.04 - (cols.length - 1 - k) * 0.02));
-    if (p <= 0) return;
-    const x = lerp(W + 500, -500, p);
-    g.fillStyle = c;
-    g.beginPath(); g.moveTo(x, -50); g.lineTo(W + 600, -50); g.lineTo(W + 600, H + 50); g.lineTo(x - 360, H + 50); g.closePath(); g.fill();
-  });
-}
-
-/* ---------------- chapter card + header ---------------- */
-function chapterCard(B, k) {
-  const c = CH[k], b = c.b;
-  if (B < b - 0.9 || B >= b + 4.4) return;
-  const fg = c.ink ? '#160E00' : C.white;
-  if (B < b) { if (!BREAKS.includes(b)) bandsIn(B, b, [C.pink, C.yellow, c.col], 0.9); return; }
-  const out = Ease.inOutCubic(pr(B, b + 3.5, b + 4.3));
-  g.save();
-  g.translate(0, -out * (H + 200));
-  fillAll(c.col);
-  const vg = g.createRadialGradient(CX, CY, 200, CX, CY, 1200); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.45)');
-  g.fillStyle = vg; g.fillRect(0, 0, W, H);
-  g.save(); g.globalAlpha = 0.1; g.fillStyle = fg;
-  for (let i = -4; i < 14; i++) { const x = i * 200 + ((B * SPB * 60) % 200); g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 70, 0); g.lineTo(x - 330, H); g.lineTo(x - 400, H); g.closePath(); g.fill(); }
-  g.restore();
-  // giant outlined number
-  const np = Ease.outExpo(pr(B, b, b + 0.8));
-  g.save(); g.globalAlpha *= np;
-  chars(c.n, W - 110 + (1 - np) * 300, CY + 40, { size: 640, f: 'num', color: 'rgba(0,0,0,0)', stroke: fg, sw: 6, align: 'right', ls: 10 });
-  g.restore();
-  revealUp(`쫄지마세요  ·  PART ${c.n}`, 160, 330, { size: 30, w: 800, color: fg, align: 'left', ls: 3 }, B, b + 0.05, 0.6, 0.01);
-  const ts = fitSize(c.name, 1450, 210, 400, 'disp');
-  slam(c.name, 160, 500, { size: ts, f: 'disp', color: fg, align: 'left', ext: { col: 'rgba(0,0,0,0.35)', n: 8, dx: 2, dy: 3 } }, B, b + 0.15, 0.4, 0.05, 1.8);
-  const lw = textW(c.name, ts, 400, null, 'disp');
-  const lp = Ease.outExpo(pr(B, b + 0.6, b + 1.3));
-  g.fillStyle = fg; g.fillRect(160, 500 + ts * 0.5 + 18, lw * lp, 10);
-  const ss = fitSize(c.sub, 1560, 64, 800);
-  revealUp(c.sub, 160, 500 + ts * 0.5 + 100, { size: ss, w: 800, color: fg, align: 'left' }, B, b + 0.9, 0.7, 0.012);
-  g.restore();
-}
-function chapterHeader(B, k) {
-  const c = CH[k];
-  if (B < c.b + 3.6 || B >= c.e) return;
-  const ein = Ease.outBack(pr(B, c.b + 3.6, c.b + 4.3), 1.6), eout = Ease.inCubic(pr(B, c.e - 0.4, c.e));
-  g.save();
-  g.globalAlpha = clamp(ein) * (1 - eout);
-  g.translate(-(1 - ein) * 80, 0);
-  g.save(); g.shadowColor = c.col; g.shadowBlur = 24; circle(118, 100, 38, c.col); g.restore();
-  text(c.n, 118, 103, { size: 36, f: 'num', color: c.ink ? '#160E00' : C.white, ls: 1 });
-  text(c.name, 176, 86, { size: 42, f: 'disp', align: 'left' });
-  const ss = Math.min(26, fitSize(c.sub, 1150, 26, 600));
-  text(c.sub, 177, 130, { size: ss, w: 600, color: C.inkD, align: 'left' });
-  g.restore();
-}
-
-/* ---------------- HUD + tracker ---------------- */
-function drawHUD(B) {
-  if (B < 16.5 || B >= 266) return;
-  const a = win(B, 16.5, 266, 0.6, 1);
-  g.save(); g.globalAlpha = a;
-  text('쫄지마세요', W - 92, 82, { size: 30, f: 'disp', align: 'right', color: C.pink });
-  text('EWY vs EWT · 2026.10', W - 92, 116, { size: 18, w: 700, color: C.inkD, align: 'right', ls: 1 });
-  const k = env(KICKS, B * SPB, 10);
-  [C.ewy, C.ewt, C.pink, C.yellow].forEach((c, i) => circle(W - 92 - i * 16, 144, 4.5 + (i === 0 ? k * 2 : 0), c));
-  g.restore();
-}
-const TRK = ['같은 잣대', '고점 대비', '지수 비중', '메모리', '미국', '마무리'];
-function drawTracker(B) {
-  if (B < 32 || B >= 240.5) return;
-  const inA = Ease.outCubic(pr(B, 32, 33)), out = Ease.inCubic(pr(B, 239.5, 240.5));
-  const segW = 240, gap = 14, n = CH.length, tot = segW * n + gap * (n - 1), x0 = CX - tot / 2, y = 1046 + (1 - inA) * 60 + out * 60;
-  g.save();
-  g.globalAlpha = 1 - out;
-  for (let i = 0; i < n; i++) {
-    const c = CH[i], x = x0 + i * (segW + gap);
-    const fp = clamp((B - c.b) / (c.e - c.b)), active = B >= c.b && B < c.e;
-    rr(x, y - 4, segW, 8, 4); g.fillStyle = 'rgba(244,246,255,0.10)'; g.fill();
-    if (fp > 0) { g.save(); if (active) { g.shadowColor = c.col; g.shadowBlur = 14; } rr(x, y - 4, Math.max(8, segW * fp), 8, 4); g.fillStyle = c.col; g.fill(); g.restore(); }
-    text(TRK[i], x + 2, y - 20, { size: 18, w: active ? 800 : 600, color: active ? C.ink : C.inkS, align: 'left' });
-  }
-  g.restore();
-}
-
-/* ============================================================
-   INTRO (B0–16): ticker tape, "시장이 흔들립니다", break
-   ============================================================ */
-const SCARE = [
-  { s: '−21%', x: 380, y: 300, b: 8, col: C.ewy, r: -0.12 },
-  { s: '−33%', x: 1540, y: 320, b: 8.5, col: C.hynix, r: 0.1 },
-  { s: '−32%', x: 300, y: 820, b: 9, col: C.candle, r: 0.08 },
-  { s: '−20%', x: 1600, y: 800, b: 9.5, col: C.samsung, r: -0.09 },
-  { s: '−10%', x: 960, y: 930, b: 10, col: C.ewt, r: 0.04 },
-];
-function sIntro(B, t, F) {
-  const fade = Ease.inCubic(pr(B, 14, 15.5));
-  g.save(); g.globalAlpha *= 1 - fade * 0.8;
-  tape(150, t, 160, Ease.outCubic(pr(B, 0, 1.5)));
-  SCARE.forEach((s) => {
-    const p = popE(B, s.b, 0.4, 2.4);
-    if (p <= 0) return;
-    g.save(); g.translate(s.x + vnoise(t * 9, s.b) * 6, s.y + vnoise(t * 9, s.b + 1) * 6); g.rotate(s.r); g.scale(p, p); g.globalAlpha *= 0.85;
-    chars(s.s, 0, 0, { size: 150, f: 'num', color: s.col, glow: s.col, blur: 30, rgb: 6 });
-    g.restore();
-  });
-  rise('10월 고점 이후,', CX, 380, { size: 52, w: 800, color: C.inkD }, B, 2, 0.6, 0.03);
-  shaky('시장이 흔들립니다', CX, 540, { size: 170, f: 'disp', color: C.ink, glow: C.cyan, blur: 26, rgb: 5 }, B, 4, 13.5, 1.8);
-  if (B >= 12) rise('그런데 정말, 겁먹을 일일까?', CX, 710, { size: 50, w: 800, color: C.yellow }, B, 12, 0.6, 0.02);
-  g.restore();
-}
-
-/* ============================================================
-   TITLE (B16–32): 쫄지마세요 drop, subtitle, agenda
-   ============================================================ */
-const AGENDA = CH.map((c) => [c.n, c.name, c.col]);
-function sTitle(B, t, F) {
-  const up = Ease.inOutCubic(pr(B, 25.5, 26.5));
-  const ty = lerp(430, 300, up), sz = lerp(300, 220, up);
-  // sunburst behind
-  const sb = Ease.outExpo(pr(B, 16, 17));
-  g.save(); g.globalAlpha *= 0.07 * (1 + F.kick * 0.5);
-  for (let k = 0; k < 24; k++) { const a = t * 0.08 + (k / 24) * TAU; g.fillStyle = k % 2 ? C.pink : C.yellow; g.beginPath(); g.moveTo(CX, ty); g.arc(CX, ty, 1600 * sb, a, a + TAU / 48); g.closePath(); g.fill(); }
-  g.restore();
-  logo('쫄지마세요', CX, ty, sz, B, 16);
-  ring(B, 16, CX, ty, { col: C.pink, r: 1000, lw: 24, alpha: 0.6 });
-  confetti(B, 16, CX, ty, { n: 70, seed: 3, v1: 1900 });
-  group(B, 19, 25.6, () => {
-    const y = 680;
-    const w1 = textW('한국', 56, 900) + textW('−21%', 96, 400, null, 'num') + 60;
-    const w2 = textW('대만', 56, 900) + textW('−10%', 96, 400, null, 'num') + 60;
-    const gap = 180, x0 = CX - (w1 + w2 + gap) / 2;
-    let x = x0;
-    x += text('한국', x, y, { size: 56, w: 900, align: 'left' }) + 22;
-    chars('−21%', x, y + 6, { size: 96, f: 'num', color: C.ewy, glow: C.ewy, blur: 24, align: 'left' });
-    text('vs', CX + (w1 - w2) / 2 - 0, y, { size: 44, f: 'num', color: C.inkS });
-    x = x0 + w1 + gap;
-    x += text('대만', x, y, { size: 56, w: 900, align: 'left' }) + 22;
-    chars('−10%', x, y + 6, { size: 96, f: 'num', color: C.ewt, glow: C.ewt, blur: 24, align: 'left' });
-    revealUp('같은 반도체 강국, 왜 두 배 차이가 났을까', CX, 820, { size: 50, w: 800, color: C.inkD }, B, 21, 0.6, 0.015);
-  }, { dy: 50 });
-  // agenda chips
-  if (B >= 26) {
-    const ws = AGENDA.map(([n, s]) => textW(s, 34, 800) + 34 * 1.5 + 50);
-    const rows = [[0, 1, 2], [3, 4, 5]];
-    rows.forEach((row, ri) => {
-      const tot = row.reduce((a, i) => a + ws[i], 0) + 26 * (row.length - 1);
-      let xx = CX - tot / 2;
-      row.forEach((i) => {
-        const p = popE(B, 26.4 + i * 0.45, 0.45, 2.4);
-        if (p > 0) {
-          g.save(); g.translate(xx + ws[i] / 2, 600 + ri * 110); g.scale(p, p);
-          const w = ws[i];
-          g.save(); g.shadowColor = AGENDA[i][2]; g.shadowBlur = 18; rr(-w / 2, -36, w, 72, 36); g.fillStyle = C.panel2; g.fill(); g.restore();
-          g.lineWidth = 3; g.strokeStyle = AGENDA[i][2]; rr(-w / 2, -36, w, 72, 36); g.stroke();
-          text(AGENDA[i][0], -w / 2 + 40, 3, { size: 34, f: 'num', color: AGENDA[i][2] });
-          text(AGENDA[i][1], -w / 2 + 72, 1, { size: 34, w: 800, align: 'left' });
-          g.restore();
-        }
-        xx += ws[i] + 26;
-      });
-    });
-  }
-}
-
-/* ============================================================
-   01 같은 잣대로 (B32–64): EWY vs EWT cards, 6-month chart
-   ============================================================ */
+/* ---------------- shared drawings ---------------- */
 // digitised from the attached 6-month chart (x in screenshot px, y px; 0% at 347, 5 px per 1%)
 const EWT_RAW = [[25, 337], [45, 335], [60, 330], [70, 307], [85, 312], [105, 296], [125, 295], [135, 285], [150, 267], [165, 268], [175, 255], [185, 272], [205, 262], [215, 287], [232, 297], [250, 272], [262, 255], [272, 220], [290, 215], [300, 213], [312, 192], [325, 190], [337, 195], [348, 245], [360, 232], [375, 245], [385, 218], [395, 218], [405, 195], [418, 205], [432, 172], [442, 163], [452, 202], [470, 205], [482, 215], [500, 180], [512, 198], [528, 190], [538, 222], [550, 210], [568, 195], [578, 222], [595, 220], [610, 240], [625, 258], [632, 232], [645, 225], [660, 242], [675, 248], [690, 298], [700, 272], [712, 252], [727, 222], [742, 222], [760, 215], [775, 210], [790, 190], [805, 188], [820, 190], [835, 210], [852, 208], [868, 205], [882, 195], [895, 183], [910, 185], [920, 177], [935, 175], [950, 160], [965, 162], [975, 178], [988, 163], [1000, 190], [1010, 192], [1022, 175], [1035, 165], [1045, 137], [1058, 142], [1072, 155], [1085, 140], [1100, 147], [1115, 155], [1130, 130], [1142, 122], [1158, 130], [1170, 152], [1185, 147], [1200, 152], [1210, 168], [1225, 194]];
 const EWY_RAW = [[25, 333], [40, 352], [52, 320], [65, 338], [80, 322], [92, 328], [105, 303], [125, 293], [140, 258], [150, 232], [158, 248], [168, 205], [180, 195], [185, 240], [195, 210], [205, 205], [215, 243], [235, 258], [250, 225], [268, 168], [280, 175], [290, 150], [300, 148], [310, 115], [325, 128], [335, 155], [345, 255], [355, 220], [365, 225], [380, 175], [395, 175], [405, 130], [418, 150], [428, 155], [435, 105], [445, 195], [460, 180], [470, 155], [480, 180], [495, 160], [510, 220], [520, 238], [538, 232], [555, 225], [565, 250], [578, 282], [590, 260], [605, 295], [620, 298], [635, 262], [648, 272], [658, 262], [670, 300], [680, 335], [690, 360], [700, 300], [712, 315], [725, 295], [735, 268], [750, 292], [760, 285], [775, 295], [790, 248], [805, 238], [815, 222], [825, 270], [845, 245], [855, 245], [868, 262], [880, 238], [893, 240], [905, 232], [915, 252], [930, 238], [945, 212], [965, 205], [975, 230], [990, 210], [1000, 252], [1010, 250], [1020, 255], [1028, 230], [1040, 232], [1050, 210], [1060, 195], [1072, 225], [1085, 215], [1100, 213], [1112, 228], [1130, 198], [1140, 200], [1150, 218], [1160, 230], [1175, 270], [1190, 285], [1205, 308], [1218, 320], [1225, 337]];
@@ -349,474 +163,686 @@ const toPct = (raw, endPct) => raw.map(([x, y], i) => [(x - 25) / 1200, i === ra
 const EWT6 = toPct(EWT_RAW, 30.62), EWY6 = toPct(EWY_RAW, 2.01);
 const MONTHS = [[113, '5월'], [305, '6월'], [505, '7월'], [715, '8월'], [917, '9월'], [1115, '10월']];
 const peakAfter = (d, u0) => d.filter((p) => p[0] >= u0).reduce((a, b) => (b[1] > a[1] ? b : a));
-function sSame(B, t, F) {
-  // A · the two tickers (B36–44)
-  group(B, 35.6, 44.3, () => {
-    revealUp('미국에 상장된 · 달러 기준 ETF끼리', CX, 250, { size: 54, w: 900 }, B, 36, 0.6, 0.015);
-    const cards = [
-      { x: 520, tk: 'EWY', nm: 'iShares MSCI South Korea', ct: '한국', col: C.ewy, b: 36.5, px: '150.44' },
-      { x: 1400, tk: 'EWT', nm: 'iShares MSCI Taiwan', ct: '대만', col: C.ewt, b: 37.5, px: '106.26' },
-    ];
-    cards.forEach((c) => {
-      const p = popE(B, c.b, 0.5, 1.8);
-      if (p <= 0) return;
-      g.save(); g.translate(c.x, 560); g.scale(p, p);
-      g.save(); g.shadowColor = c.col; g.shadowBlur = 40; rr(-330, -200, 660, 400, 36); g.fillStyle = C.panel; g.fill(); g.restore();
-      g.lineWidth = 4; g.strokeStyle = c.col; rr(-330, -200, 660, 400, 36); g.stroke();
-      pill(c.ct, -290, -140, { size: 34, w: 900, fill: c.col, color: '#0A0A0A', align: 'left' });
-      text('$' + c.px, 290, -140, { size: 40, f: 'num', color: C.inkD, align: 'right', ls: 1 });
-      chars(c.tk, 0, 40, { size: 200, f: 'num', color: C.white, glow: c.col, blur: 40, ls: 8, ext: { col: c.col, n: 6, dx: 2, dy: 3 } });
-      text(c.nm, 0, 150, { size: 28, w: 700, color: C.inkD });
-      g.restore();
-    });
-    const vp = popE(B, 38.5, 0.4, 2.6);
-    if (vp > 0) { g.save(); g.translate(CX, 560); g.scale(vp, vp); g.rotate(-0.08); chars('VS', 0, 0, { size: 130, f: 'num', color: C.yellow, glow: C.pink, blur: 30, rgb: 5 }); g.restore(); }
-    rise('통화 효과까지 같은 잣대로 놓고 비교', CX, 880, { size: 42, w: 800, color: C.inkD }, B, 40);
-  }, { dy: 60, dout: 0.35 });
-  // B · 6-month chart (B44–64)
-  group(B, 44, 64.2, () => {
-    const x = 110, y = 190, w = 1700, h = 790;
-    panel(x, y, w, h, { r: 30 });
-    text('최근 6개월 수익률', x + 44, y + 60, { size: 40, f: 'disp', align: 'left' });
-    tag('첨부 차트 재현 · 달러 기준', x + w - 40, y + 60);
-    // legend
-    [[C.ewt, 'EWT 대만'], [C.ewy, 'EWY 한국']].forEach(([c, s], i) => { circle(x + 60, y + 120 + i * 40, 10, c); text(s, x + 82, y + 121 + i * 40, { size: 26, w: 800, align: 'left' }); });
-    const px0 = x + 70, px1 = x + w - 420, py0 = y + 190, py1 = y + h - 90;
-    const lo = -8, hi = 55;
-    const mx = (u) => lerp(px0, px1, u), my = (v) => lerp(py1, py0, (v - lo) / (hi - lo));
-    // grid
-    [0, 25, 50].forEach((v) => {
-      dashed(px0, my(v), px1, my(v), 'rgba(244,246,255,0.12)', 2, [4, 8]);
-      text(`${v > 0 ? '+' : ''}${v}%`, px1 + 16, my(v) - 18, { size: 22, f: 'num', color: C.inkS, align: 'left', ls: 1 });
-    });
-    MONTHS.forEach(([xx, m]) => { const u = (xx - 25) / 1200; g.fillStyle = 'rgba(244,246,255,0.06)'; g.fillRect(mx(u) - 1, py0 - 20, 2, py1 - py0 + 20); text(m, mx(u), py1 + 40, { size: 26, w: 700, color: C.inkS }); });
-    const dp = Ease.inOutSine(pr(B, 44.5, 54));
-    const xc = mx(dp);
-    const map = (d) => d.map(([u, v]) => [mx(u), my(v)]);
-    const ewy = polyUpToX(map(EWY6), xc), ewt = polyUpToX(map(EWT6), xc);
-    glowPath(ewy, C.ewy, 5, 18);
-    glowPath(ewt, C.ewt, 8, 26);
-    const hy = ewy[ewy.length - 1], ht = ewt[ewt.length - 1];
-    if (dp < 1) { circle(hy[0], hy[1], 9, C.ewy); circle(ht[0], ht[1], 11, C.ewt); }
-    // end labels like the reference
-    const lp = popE(B, 54.3, 0.45, 2);
-    if (lp > 0) {
-      [[ht, '+30.62%', C.ewt], [hy, '+2.01%', C.ewy]].forEach(([p, s, c]) => {
-        g.save(); g.translate(p[0] + 18, p[1]); g.scale(lp, lp);
-        g.fillStyle = c; g.beginPath(); g.moveTo(0, 0); g.lineTo(18, -26); g.lineTo(18 + textW(s, 34, 400, null, 'num') + 28, -26); g.lineTo(18 + textW(s, 34, 400, null, 'num') + 28, 26); g.lineTo(18, 26); g.closePath(); g.fill();
-        text(s, 32, 3, { size: 34, f: 'num', color: '#0A0A0A', align: 'left', ls: 1 });
-        g.restore();
-      });
-    }
-    // October highs → brackets
-    if (B >= 56) {
-      const pk = [[peakAfter(EWT6, 0.88), EWT6[EWT6.length - 1], C.ewt, '−10%', px1 + 250], [peakAfter(EWY6, 0.88), EWY6[EWY6.length - 1], C.ewy, '−21%', px1 + 350]];
-      pk.forEach(([p, e, c, s, bx], i) => {
-        const b0 = 56 + i * 1.2;
-        const a = pr(B, b0, b0 + 0.3);
-        if (a <= 0) return;
-        const [ppx, ppy] = [mx(p[0]), my(p[1])], ey = my(e[1]);
-        g.save(); g.shadowColor = c; g.shadowBlur = 20; circle(ppx, ppy, 12 * popE(B, b0, 0.4), c); g.restore();
-        text('10월 고점', ppx, ppy - 34, { size: 22, w: 800, color: c, alpha: a });
-        dashed(ppx, ppy, lerp(ppx, bx, Ease.outCubic(pr(B, b0, b0 + 0.6))), ppy, c, 3);
-        if (B >= b0 + 0.5) dashed(Math.min(e[0] === 1 ? mx(1) : mx(1), bx), ey, bx, ey, c, 3);
-        dropBracket(bx, ppy, ey, c, pr(B, b0 + 0.5, b0 + 1.1));
-        const sp = popE(B, b0 + 1, 0.45, 2.4);
-        if (sp > 0) { g.save(); g.translate(bx, (ppy + ey) / 2); g.scale(sp, sp); g.save(); g.shadowColor = c; g.shadowBlur = 22; rr(-74, -32, 148, 64, 32); g.fillStyle = C.bg; g.fill(); g.restore(); g.lineWidth = 3; g.strokeStyle = c; rr(-74, -32, 148, 64, 32); g.stroke(); text(s, 0, 3, { size: 40, f: 'num', color: c, ls: 1 }); g.restore(); }
-      });
-    }
-    if (B >= 59.5) {
-      const o = { size: 46, w: 900, colorFn: hl('10월 고점에서 꺾인 폭이 다르다', '꺾인 폭', C.yellow) };
-      rise('10월 고점에서 꺾인 폭이 다르다', x + 640, y + 128, Object.assign({ align: 'left' }, o), B, 59.5);
-    }
-  }, { dy: 60, dout: 0.3 });
-}
 
-/* ============================================================
-   02 10월 고점 대비 (B64–100): drawdown bars, "2배", 왜?
-   ============================================================ */
-const DD = [
-  { tk: 'EWY', s: '한국 · 달러 기준', v: 21, col: C.ewy, b: 69.5 },
-  { tk: 'EWT', s: '대만 · 달러 기준', v: 10, col: C.ewt, b: 74 },
-  { tk: 'TWSE', s: '대만 지수 · 대만달러 기준', v: 5, col: C.cyan, b: 77.5, dash: true },
-];
-function sDrop(B, t, F) {
-  group(B, 67.6, 84.3, () => {
-    const base = 330, sc = 24;
-    text('10월 고점 = 0%', 150, base - 30, { size: 26, w: 800, color: C.inkD, align: 'left' });
-    dashed(140, base, W - 140, base, 'rgba(244,246,255,0.4)', 3, [12, 10]);
-    DD.forEach((d, i) => {
-      const cx = 520 + i * 440, bw = 230;
-      const lp = popE(B, d.b - 1.5, 0.5, 1.8);
-      if (lp <= 0) return;
-      g.save(); g.globalAlpha *= clamp(lp);
-      chars(d.tk, cx, base - 120, { size: 84, f: 'num', color: C.white, glow: d.col, blur: 26, ls: 4 });
-      text(d.s, cx, base - 56, { size: 24, w: 700, color: C.inkD });
-      g.restore();
-      const p = Ease.outCubic(pr(B, d.b, d.b + (d.v > 15 ? 3.5 : 2)));
-      if (p <= 0) return;
-      const hh = d.v * sc * p;
-      const gr = g.createLinearGradient(0, base, 0, base + d.v * sc);
-      gr.addColorStop(0, d.col + '22'); gr.addColorStop(1, d.col);
-      g.save(); g.shadowColor = d.col; g.shadowBlur = 30 * p;
-      rr(cx - bw / 2, base + 4, bw, hh, [0, 0, 18, 18]); g.fillStyle = gr; g.fill();
-      g.restore();
-      if (d.dash) { g.strokeStyle = d.col; g.lineWidth = 3; g.setLineDash([8, 8]); rr(cx - bw / 2, base + 4, bw, hh, [0, 0, 18, 18]); g.stroke(); g.setLineDash([]); }
-      const v = (d.v * p).toFixed(0);
-      chars(`−${v}%`, cx, base + hh + 90, { size: 120, f: 'num', color: d.col, glow: d.col, blur: 26, rgb: p < 1 ? 4 : 0 });
-    });
-    const tp = popE(B, 80, 0.5, 2.2);
-    if (tp > 0) {
-      g.save(); g.translate(740, 760); g.scale(tp, tp); g.rotate(-0.06);
-      g.save(); g.shadowColor = C.yellow; g.shadowBlur = 24; rr(-120, -46, 240, 92, 46); g.fillStyle = C.yellow; g.fill(); g.restore();
-      text('약 2배', 0, 4, { size: 48, f: 'disp', color: '#1A1000' });
-      g.restore();
-      arrow(860, 760, 900, 650, C.yellow, 6, 20, pr(B, 80.3, 80.8));
-    }
-    if (B >= 78.5) rise('TWSE 지수 자체는 대만달러 기준으로 −5%', 1400, 920, { size: 24, w: 700, color: C.inkS }, B, 78.5);
-  }, { dy: 50, dout: 0.3 });
-  // "같은 달러 기준인데, 한국이 2배 더 빠졌다" (B84–92)
-  group(B, 84, 92, () => {
-    rise('같은 달러 기준인데,', CX, 360, { size: 56, w: 800, color: C.inkD }, B, 84);
-    const o = { size: 170, f: 'disp', colorFn: hl('한국이 2배 더 빠졌다', '2배', C.yellow), glow: C.ewy, blur: 22, rgb: 4 };
-    slam('한국이 2배 더 빠졌다', CX, 560, o, B, 84.6, 0.35, 0.05, 2);
-    const bar = pr(B, 86, 87);
-    if (bar > 0) {
-      const [a, b] = subRange('한국이 2배 더 빠졌다', '2배', CX, o);
-      g.fillStyle = C.yellow; g.fillRect(a, 660, (b - a) * Ease.outExpo(bar), 12);
-    }
-    rise('−21% vs −10%', CX, 780, { size: 64, f: 'num', color: C.ink, ls: 2 }, B, 86.5);
-  }, { dy: 0, din: 0.2, dout: 0.25 });
-  // DROP: 왜? (B92–100)
-  group(B, 92, 99.3, () => {
-    const s = lerp(1.8, 1, Ease.outExpo(pr(B, 92, 92.5)));
-    g.save(); g.translate(CX, 470); g.scale(s, s); g.rotate(vnoise(t * 3, 5) * 0.03);
-    chars('왜?', 0, 0, { size: 420, f: 'disp', grad: [C.white, C.pink], glow: C.pink, blur: 50, rgb: 10, ext: { col: '#3B0A2A', n: 16, dx: 4, dy: 6 } });
+// 6-month line chart. dp = draw progress; bps = [EWT, EWY] beats where the October drops show (or null)
+function etfChart(B, x, y, w, h, dp, bps) {
+  panel(x, y, w, h, { r: 30 });
+  text('최근 6개월 · 달러 기준 수익률', x + 40, y + 52, { size: 32, f: 'disp', align: 'left' });
+  tag('첨부 차트 재현', x + w - 36, y + 52);
+  [[C.ewt, 'EWT 대만'], [C.ewy, 'EWY 한국']].forEach(([c, s], i) => { circle(x + 52 + i * 190, y + 104, 9, c); text(s, x + 72 + i * 190, y + 105, { size: 24, w: 800, align: 'left' }); });
+  const px0 = x + 60, px1 = x + w - 360, py0 = y + 150, py1 = y + h - 60;
+  const lo = -8, hi = 52;
+  const mx = (u) => lerp(px0, px1, u), my = (v) => lerp(py1, py0, (v - lo) / (hi - lo));
+  [0, 25, 50].forEach((v) => {
+    dashed(px0, my(v), px1, my(v), 'rgba(244,246,255,0.12)', 2, [4, 8]);
+    text(`${v > 0 ? '+' : ''}${v}%`, px1 + 14, my(v) - 16, { size: 20, f: 'num', color: C.inkS, align: 'left', ls: 1 });
+  });
+  MONTHS.forEach(([xx, m]) => text(m, mx((xx - 25) / 1200), py1 + 32, { size: 22, w: 700, color: C.inkS }));
+  const xc = mx(dp), map = (d) => d.map(([u, v]) => [mx(u), my(v)]);
+  const ewy = polyUpToX(map(EWY6), xc), ewt = polyUpToX(map(EWT6), xc);
+  glowPath(ewy, C.ewy, 5, 18); glowPath(ewt, C.ewt, 7, 26);
+  const hy = ewy[ewy.length - 1], ht = ewt[ewt.length - 1];
+  if (dp < 1) { circle(hy[0], hy[1], 9, C.ewy); circle(ht[0], ht[1], 11, C.ewt); }
+  else [[ht, '+30.62%', C.ewt], [hy, '+2.01%', C.ewy]].forEach(([p, s, c]) => {
+    const fa = bps ? 1 - pr(B, bps[0], bps[0] + 0.5) : 1;
+    if (fa <= 0) return;
+    g.save(); g.globalAlpha *= fa;
+    const tw = textW(s, 28, 400, null, 'num') + 26;
+    g.fillStyle = c; g.beginPath(); g.moveTo(p[0] + 10, p[1]); g.lineTo(p[0] + 26, p[1] - 22); g.lineTo(p[0] + 26 + tw, p[1] - 22); g.lineTo(p[0] + 26 + tw, p[1] + 22); g.lineTo(p[0] + 26, p[1] + 22); g.closePath(); g.fill();
+    text(s, p[0] + 38, p[1] + 3, { size: 28, f: 'num', color: '#0A0A0A', align: 'left', ls: 1 });
     g.restore();
-    ring(B, 92, CX, 470, { col: C.pink, r: 1100, lw: 26, alpha: 0.6 });
-    confetti(B, 92, CX, 470, { n: 50, seed: 17, v1: 1700, cols: [C.pink, C.yellow, C.cyan] });
-    revealUp('왜 한국만 이렇게 더 빠졌을까', CX, 800, { size: 60, w: 900 }, B, 93.5, 0.6, 0.02);
-    rise('답은 지수 안의 “무게”에 있다', CX, 890, { size: 40, w: 800, color: C.yellow }, B, 96);
-  }, { dy: 0, din: 0.1 });
+  });
+  if (!bps) return;
+  [[peakAfter(EWT6, 0.88), EWT6[EWT6.length - 1], C.ewt, '−10%', px1 + 220, bps[0]], [peakAfter(EWY6, 0.88), EWY6[EWY6.length - 1], C.ewy, '−21%', px1 + 310, bps[1]]].forEach(([p, e, c, s, bx, b0]) => {
+    const a = pr(B, b0, b0 + 0.3);
+    if (a <= 0) return;
+    const ppx = mx(p[0]), ppy = my(p[1]), ey = my(e[1]);
+    g.save(); g.shadowColor = c; g.shadowBlur = 20; circle(ppx, ppy, 11 * popE(B, b0, 0.4), c); g.restore();
+    text('10월 고점', ppx, ppy - 30, { size: 20, w: 800, color: c, alpha: a });
+    dashed(ppx, ppy, lerp(ppx, bx, Ease.outCubic(pr(B, b0, b0 + 0.6))), ppy, c, 3);
+    if (B >= b0 + 0.5) dashed(mx(1) + 16, ey, bx, ey, c, 3);
+    dropBracket(bx, ppy, ey, c, pr(B, b0 + 0.5, b0 + 1.1));
+    popAt(B, b0 + 1, bx, (ppy + ey) / 2, () => { neonBox(-66, -28, 132, 56, c, 28, C.bg); text(s, 0, 3, { size: 34, f: 'num', color: c, ls: 1 }); });
+  });
 }
-
-/* ============================================================
-   03 지수 안의 무게 (B100–140): TSMC 20% vs 삼전+닉스 60%
-   ============================================================ */
-function hbar(x, y, w, v, maxV, col, label, p, valTxt) {
-  text(label, x, y - 36, { size: 30, w: 800, align: 'left' });
-  g.fillStyle = 'rgba(244,246,255,0.08)'; rr(x, y - 14, w, 28, 14); g.fill();
-  const ww = Math.max(28, (w * v * p) / maxV);
-  if (p > 0) { g.save(); g.shadowColor = col; g.shadowBlur = 20; g.fillStyle = col; rr(x, y - 14, ww, 28, 14); g.fill(); g.restore(); }
-  text(valTxt || `−${Math.round(v * p)}%`, x + ww + 16, y + 4, { size: 48, f: 'num', color: col, align: 'left', ls: 1 });
+// vertical drawdown bars hanging from a "10월 고점" baseline
+function ddBars(B, items, x0, gap, base, sc, o = {}) {
+  const bw = o.bw || 170, xl = x0 - bw / 2 - 24, xr = x0 + gap * (items.length - 1) + bw / 2 + 24;
+  text(o.label || '10월 고점 = 0%', xl - 16, base, { size: 22, w: 800, color: C.inkD, align: 'right' });
+  dashed(xl, base, xr, base, 'rgba(244,246,255,0.4)', 3, [12, 10]);
+  items.forEach((d, i) => {
+    const cx = x0 + i * gap;
+    const lp = popE(B, d.b - 0.8, 0.5, 1.8);
+    if (lp <= 0) return;
+    g.save(); g.globalAlpha *= clamp(lp);
+    chars(d.tk, cx, base - 92, { size: 60, f: d.f || 'num', color: C.white, glow: d.col, blur: 24, ls: d.f ? 0 : 3 });
+    if (d.s) text(d.s, cx, base - 44, { size: 22, w: 700, color: C.inkD });
+    g.restore();
+    const p = Ease.outCubic(pr(B, d.b, d.b + (d.v > 15 ? 2.2 : 1.4)));
+    if (p <= 0) return;
+    const hh = d.v * sc * p, gr = g.createLinearGradient(0, base, 0, base + d.v * sc);
+    gr.addColorStop(0, d.col + '22'); gr.addColorStop(1, d.col);
+    g.save(); g.shadowColor = d.col; g.shadowBlur = 30 * p; rr(cx - bw / 2, base + 4, bw, hh, [0, 0, 16, 16]); g.fillStyle = gr; g.fill(); g.restore();
+    bigNum(`−${Math.round(d.v * p)}%`, cx, base + hh + 62, o.ns || 84, d.col, { rgb: p < 1 ? 4 : 0 });
+  });
 }
-function sWeight(B, t, F) {
-  group(B, 103.6, 140.2, () => {
-    const y = 180, h = 690;
-    // Taiwan
-    {
-      const x = 110, w = 830, cx = x + 250, cy = y + 330;
-      panel(x, y, w, h, { r: 30 });
-      text('대만 지수', x + 44, y + 64, { size: 48, f: 'disp', align: 'left' });
-      pill('EWT', x + w - 40, y + 62, { size: 26, f: 'num', fill: C.ewt, color: '#0A0A0A', align: 'right', ls: 2 });
-      const dp = 0.2 * Ease.inOutCubic(pr(B, 105, 107));
-      arcStroke(cx, cy, 170, 0, TAU, 'rgba(244,246,255,0.1)', 64, 'butt');
-      if (dp > 0) { g.save(); g.shadowColor = C.tsmc; g.shadowBlur = 30; arcStroke(cx, cy, 170, -Math.PI / 2, -Math.PI / 2 + TAU * dp, C.tsmc, 64, 'butt'); g.restore(); }
-      numUnit(String(Math.round(dp * 100)), '%', cx, cy + 34, { size: 110, f: 'num', color: C.white, unitSize: 54, uf: 'num' });
-      text('TSMC 비중', cx, cy + 82, { size: 26, w: 800, color: C.inkD });
-      const lp = popE(B, 106.5, 0.45);
-      if (lp > 0) { g.save(); g.translate(x + 600, y + 230); g.scale(lp, lp); text('TSMC', 0, 0, { size: 64, f: 'num', color: C.tsmc, ls: 3 }); text('대만 반도체 · 파운드리', 0, 52, { size: 24, w: 700, color: C.inkD }); g.restore(); }
-      const bp = Ease.outCubic(pr(B, 110, 111.5));
-      if (B >= 109.5) hbar(x + 520, y + 400, 150, 6, 33, C.tsmc, '10월 낙폭', bp);
-      if (B >= 113) rise('덜 빠진 종목의 비중 20%', x + 44, y + h - 70, { size: 38, w: 900, color: C.ink, align: 'left', colorFn: hl('덜 빠진 종목의 비중 20%', '20%', C.tsmc) }, B, 113);
-    }
-    // Korea
-    {
-      const x = 980, w = 830, cx = x + 250, cy = y + 330;
-      const ap = B < 120 ? 0.45 : 1;
-      g.save(); g.globalAlpha *= ap;
-      panel(x, y, w, h, { r: 30, stroke: B >= 120 ? C.pink : null, lw: 3 });
-      text('한국 지수', x + 44, y + 64, { size: 48, f: 'disp', align: 'left' });
-      pill('EWY', x + w - 40, y + 62, { size: 26, f: 'num', fill: C.ewy, color: '#0A0A0A', align: 'right', ls: 2 });
-      arcStroke(cx, cy, 170, 0, TAU, 'rgba(244,246,255,0.1)', 64, 'butt');
-      if (B < 120) text('?', cx, cy + 10, { size: 160, f: 'disp', color: C.inkS, alpha: 0.5 + 0.5 * Math.sin(t * 8) });
-      g.restore();
-      if (B >= 120) {
-        const dp = 0.6 * Ease.outExpo(pr(B, 120, 121.2));
-        const a0 = -Math.PI / 2, mid = a0 + TAU * 0.3;
-        g.save(); g.shadowColor = C.samsung; g.shadowBlur = 30;
-        arcStroke(cx, cy, 170, a0, a0 + TAU * Math.min(dp, 0.3), C.samsung, 64, 'butt');
-        if (dp > 0.3) { g.shadowColor = C.hynix; arcStroke(cx, cy, 170, mid, a0 + TAU * dp, C.hynix, 64, 'butt'); }
-        g.restore();
-        const s = lerp(1.6, 1, Ease.outExpo(pr(B, 120, 120.5)));
-        g.save(); g.translate(cx, cy + 34); g.scale(s, s);
-        numUnit(String(Math.round(dp * 100)), '%', 0, 0, { size: 110, f: 'num', color: C.white, unitSize: 54, uf: 'num' });
-        g.restore();
-        text('삼전 + 닉스 비중', cx, cy + 82, { size: 26, w: 800, color: C.inkD });
-        ring(B, 120, cx, cy, { col: C.pink, r: 600, lw: 18, alpha: 0.6 });
-        const lp = popE(B, 121, 0.45);
-        if (lp > 0) { g.save(); g.translate(x + 610, y + 210); g.scale(lp, lp); text('삼성전자', 0, 0, { size: 40, w: 900, color: C.samsung }); text('+', 0, 44, { size: 34, w: 900, color: C.inkD }); text('SK하이닉스', 0, 88, { size: 40, w: 900, color: C.hynix }); g.restore(); }
-        if (B >= 123.5) hbar(x + 520, y + 400, 150, 33, 33, C.hynix, 'SK하이닉스 10월', Ease.outCubic(pr(B, 124, 125.2)));
-        if (B >= 125.5) hbar(x + 520, y + 530, 150, 20, 33, C.samsung, '삼성전자 10월', Ease.outCubic(pr(B, 126, 127)));
-        if (B >= 128) rise('크게 빠진 두 종목이 60%', x + 44, y + h - 70, { size: 38, w: 900, color: C.ink, align: 'left', colorFn: hl('크게 빠진 두 종목이 60%', '60%', C.pink) }, B, 128);
-      }
-    }
-    if (B >= 131) {
-      const o = { size: 50, f: 'disp', colorFn: hl('무거운 종목이 더 빠지면, 지수도 더 빠진다', '지수도 더 빠진다', C.yellow) };
-      revealUp('무거운 종목이 더 빠지면, 지수도 더 빠진다', CX, 950, o, B, 131, 0.6, 0.015);
-    }
-  }, { dy: 60, dout: 0.35 });
+function donutW(B, cx, cy, r, b0, segs, sub) {
+  arcStroke(cx, cy, r, 0, TAU, 'rgba(244,246,255,0.1)', r * 0.36, 'butt');
+  const sum = segs.reduce((s, x) => s + x[0], 0), p = Ease.inOutCubic(pr(B, b0, b0 + 1.4));
+  let a0 = -Math.PI / 2, tot = 0;
+  segs.forEach(([v, col]) => {
+    const vv = clamp(p * sum - tot, 0, v); tot += v;
+    if (vv > 0) { g.save(); g.shadowColor = col; g.shadowBlur = 28; arcStroke(cx, cy, r, a0, a0 + TAU * vv, col, r * 0.36, 'butt'); g.restore(); }
+    a0 += TAU * v;
+  });
+  numUnit(String(Math.round(sum * p * 100)), '%', cx, cy + r * 0.2, { size: r * 0.62, f: 'num', color: C.white, unitSize: r * 0.3, uf: 'num' });
+  text(sub, cx, cy + r * 0.48, { size: Math.min(24, r * 0.14), w: 800, color: C.inkD });
 }
-
-/* ============================================================
-   04 메모리 vs 파운드리 (B140–168): volatility waves (hypothesis)
-   ============================================================ */
-function wave(x0, x1, yc, amp, freq, ph, p, col, lw) {
-  const pts = [], n = 160, xe = lerp(x0, x1, p);
+function wavePts(x0, x1, yc, amp, freq, ph, p) {
+  const pts = [], n = 140, xe = lerp(x0, x1, p);
   for (let k = 0; k <= n; k++) {
     const x = lerp(x0, x1, k / n); if (x > xe) break;
     const u = (x - x0) / (x1 - x0);
     pts.push([x, yc - Math.sin(u * TAU * freq + ph) * amp * (0.75 + 0.25 * Math.sin(u * 9 + ph))]);
   }
-  glowPath(pts, col, lw, 24);
-  return pts[pts.length - 1];
+  return pts;
 }
-function sMemory(B, t, F) {
-  group(B, 143.6, 168.2, () => {
-    const x = 110, y = 180, w = 1700, h = 540;
+function chip(x, y, s, col, label) {
+  g.save(); g.translate(x, y); g.scale(s, s);
+  g.strokeStyle = col; g.lineWidth = 6; g.lineCap = 'round';
+  for (let k = -2; k <= 2; k++) { line(k * 22, -78, k * 22, -96); line(k * 22, 78, k * 22, 96); line(-78, k * 22, -96, k * 22); line(78, k * 22, 96, k * 22); }
+  g.lineCap = 'butt';
+  g.save(); g.shadowColor = col; g.shadowBlur = 30; rr(-78, -78, 156, 156, 18); g.fillStyle = C.panel2; g.fill(); g.restore();
+  g.lineWidth = 5; rr(-78, -78, 156, 156, 18); g.stroke();
+  rr(-46, -46, 92, 92, 10); g.fillStyle = col + '33'; g.fill();
+  if (label) text(label, 0, 2, { size: 28, f: 'num', color: col, ls: 1 });
+  g.restore();
+}
+// a turning season dial: an arc with an arrow head that keeps rotating
+function cycleDial(x, y, r, col, rot, label, sub) {
+  arcStroke(x, y, r, 0, TAU, 'rgba(244,246,255,0.08)', 22, 'butt');
+  g.save(); g.shadowColor = col; g.shadowBlur = 24;
+  arcStroke(x, y, r, rot, rot + Math.PI * 1.4, col, 22, 'round');
+  const a = rot + Math.PI * 1.4, hx = x + Math.cos(a) * r, hy = y + Math.sin(a) * r;
+  g.fillStyle = col; g.beginPath(); g.moveTo(hx + Math.cos(a) * 26, hy + Math.sin(a) * 26); g.lineTo(hx - Math.cos(a) * 26, hy - Math.sin(a) * 26); g.lineTo(hx + Math.cos(a + Math.PI / 2) * 30, hy + Math.sin(a + Math.PI / 2) * 30); g.closePath(); g.fill();
+  g.restore();
+  text(label, x, y - 8, { size: 48, f: 'disp', color: col });
+  text(sub, x, y + 40, { size: 24, w: 800, color: C.inkD });
+}
+
+/* ============================================================
+   VERSE 1 (0–17.5 s)
+   ============================================================ */
+function sVerse1(B, t, F) {
+  // the title, over the first words
+  const tp = 1 - Ease.inOutCubic(pr(t, 2.0, 2.8));
+  if (tp > 0) {
+    g.save(); g.globalAlpha *= tp;
+    logo('반도체의 계절', CX, 400 - (1 - tp) * 100, 200, B, 0);
+    text('EWY vs EWT · 달러 기준으로 본 한국과 대만', CX, 560, { size: 36, w: 800, color: C.inkD, alpha: pr(t, 0.5, 1.2) });
+    g.restore();
+  }
+  // L0–L1: "두 장의 차트" draws, then the October highs split
+  group(B, SB(2.0), LB(2) + 0.3, () => {
+    etfChart(B, 160, SY0, 1600, 640, Ease.inOutSine(pr(t, 2.3, 4.6)), [CW(1, '꼭대기'), CW(1, '갈라진') - 0.4]);
+  }, { dy: 80, dout: 0.35 });
+  // L2: 한국은 스물하나, 대만은 열
+  group(B, LB(2), LB(3) + 0.2, () => {
+    ddBars(B, [{ tk: 'EWY', s: '한국 · 달러 기준', v: 21, col: C.ewy, b: CW(2, '스물') - 0.4 }, { tk: 'EWT', s: '대만 · 달러 기준', v: 10, col: C.ewt, b: CW(2, '대만은') }], 660, 600, 330, 17, { ns: 96 });
+    popAt(B, CW(2, '열') + 0.6, 960, 560, () => { neonBox(-110, -40, 220, 80, C.yellow, 40, C.yellow); text('약 2배', 0, 4, { size: 44, f: 'disp', color: '#1A1000' }); });
+  }, { dy: 50, dout: 0.3 });
+  // L3: 숫자 사이로 다른 무게가 보여 — the balance tips toward Korea
+  group(B, LB(3), SB(17.9), () => {
+    const tilt = 0.2 * Ease.outBack(pr(B, CW(3, '무게'), CW(3, '무게') + 1.5), 1.6);
+    const cx = CX, cy = 380;
+    g.fillStyle = 'rgba(244,246,255,0.5)'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx - 60, 760); g.lineTo(cx + 60, 760); g.closePath(); g.fill();
+    g.save(); g.translate(cx, cy); g.rotate(tilt);
+    g.save(); g.shadowColor = C.cyan; g.shadowBlur = 20; g.fillStyle = C.ink; rr(-560, -10, 1120, 20, 10); g.fill(); g.restore();
+    [[-500, C.ewt, '대만', 'TSMC 20%', 0.55, LB(3) + 0.4], [500, C.ewy, '한국', '삼전+닉스 60%', 1, CW(3, '다른')]].forEach(([px, col, nm, w, s, b0]) => {
+      g.save(); g.translate(px, 0); g.rotate(-tilt);
+      g.strokeStyle = 'rgba(244,246,255,0.5)'; g.lineWidth = 3; line(0, 0, -110, 170); line(0, 0, 110, 170);
+      g.fillStyle = col; rr(-150, 170, 300, 26, 13); g.fill();
+      popAt(B, b0, 0, 170, () => {
+        const bw = 120 + 100 * s, bh = 140 * s;
+        g.save(); g.shadowColor = col; g.shadowBlur = 30; rr(-bw / 2, -bh, bw, bh, 16); g.fillStyle = col; g.fill(); g.restore();
+        text(w, 0, -bh / 2, { size: px < 0 ? 22 : 25, w: 900, color: '#0A0A0A' });
+      }, 0.5, 2);
+      text(nm, 0, 250, { size: 44, f: 'disp', color: col });
+      g.restore();
+    });
+    g.restore();
+    circle(cx, cy, 16, C.yellow);
+  }, { dy: 50 });
+}
+
+/* ============================================================
+   PRE-CHORUS 1 (18.4–28.7 s)
+   ============================================================ */
+function sPre1(B, t, F) {
+  // L4: 큰 파운드리의 단단한 축 — the TSMC pillar
+  group(B, LB(4), LB(5) + 0.3, () => {
+    const p = Ease.outExpo(pr(B, LB(4), LB(4) + 1.5));
+    const x = 620, base = 790, hgt = 500 * p;
+    g.save(); g.shadowColor = C.tsmc; g.shadowBlur = 40;
+    const gr = g.createLinearGradient(0, base - 500, 0, base); gr.addColorStop(0, '#FF6B6B'); gr.addColorStop(1, '#7A0F16');
+    g.fillStyle = gr; rr(x - 110, base - hgt, 220, hgt, 14); g.fill(); g.restore();
+    for (let k = 1; k < 6; k++) { g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(x - 110, base - hgt + (k * hgt) / 6, 220, 3); }
+    g.fillStyle = C.ink; rr(x - 170, base, 340, 22, 8); g.fill(); rr(x - 150, base - hgt - 22, 300, 22, 8); g.fill();
+    revealUp('TSMC', x, base - hgt - 72, { size: 70, f: 'num', color: C.tsmc, ls: 4 }, B, LB(4) + 0.8, 0.5, 0.05);
+    revealUp('파운드리', 1000, 380, { size: 120, f: 'disp', color: C.white, align: 'left', glow: C.tsmc, blur: 20 }, B, CW(4, '파운드리') - 0.2, 0.5, 0.05);
+    rise('= 단단한 축', 1010, 510, { size: 60, w: 900, color: C.tsmc, align: 'left' }, B, CW(4, '단단한'));
+    rise('10월 −6%에 그친 대만의 중심', 1010, 590, { size: 30, w: 700, color: C.inkD, align: 'left' }, B, CW(4, '단단한') + 1);
+  }, { dy: 60, dout: 0.3 });
+  // L5: 메모리의 긴 파도
+  group(B, LB(5), LB(6) + 0.1, () => {
+    const p = Ease.inOutSine(pr(B, CW(5, '메모리') - 0.6, CW(5, '파도') + 1.2));
+    const pts = wavePts(120, 1800, 610, 190, 1.6, t * 2.2, p);
+    glowPath(pts.map(([x, y]) => [x, y + 60]), C.hynix + '66', 5, 10);
+    glowPath(pts, C.hynix, 14, 40);
+    revealUp('메모리', 180, 250, { size: 110, f: 'disp', color: C.white, align: 'left', glow: C.hynix, blur: 22 }, B, CW(5, '메모리'), 0.5, 0.05);
+    rise('긴 파도를 타는 업황', 190, 340, { size: 38, w: 800, color: C.hynix, align: 'left' }, B, CW(5, '파도'));
+  }, { dy: 0, dout: 0.4 });
+  // L6: 같은 반도체란 이름 아래 — one chip, two halves
+  group(B, LB(6), LB(7) + 0.4, () => {
+    const s = popE(B, LB(6), 0.5, 2);
+    const sp = Ease.outBack(pr(B, CW(6, '아래') - 0.3, CW(6, '아래') + 0.8), 1.4) * 260;
+    g.save(); g.beginPath(); g.rect(0, 0, CX, H); g.clip(); chip(CX - sp, 470, s * 1.6, C.cyan, ''); g.restore();
+    g.save(); g.beginPath(); g.rect(CX, 0, CX, H); g.clip(); chip(CX + sp, 470, s * 1.6, C.hynix, ''); g.restore();
+    if (sp < 30) text('반도체', CX, 472, { size: 52, f: 'disp', color: C.white, alpha: pr(B, CW(6, '반도체'), CW(6, '반도체') + 0.4) });
+    else { text('파운드리', CX - sp, 472, { size: 44, f: 'disp', color: C.cyan }); text('메모리', CX + sp, 472, { size: 44, f: 'disp', color: C.hynix }); }
+    rise('같은 이름', CX, 250, { size: 44, f: 'disp', color: C.inkD }, B, CW(6, '이름'));
+  }, { dy: 40, dout: 0.3 });
+  // L7: 서로 다른 계절 — two season dials at different speeds
+  group(B, LB(7), SB(29.1), () => {
+    popAt(B, LB(7), 560, 490, () => cycleDial(0, 0, 220, C.cyan, t * 0.9, '파운드리', '완만한 주기'), 0.5, 2);
+    popAt(B, CW(7, '다른'), 1360, 490, () => cycleDial(0, 0, 220, C.hynix, t * 3.2, '메모리', '빠르고 큰 주기'), 0.5, 2);
+  }, { dy: 40, dout: 0.15 });
+}
+
+/* ============================================================
+   CHORUS (29.0–56.3 s, again at +68.3 s). B is chorus-1 time.
+   ============================================================ */
+const COMM = [['WTI', '원유'], ['COPPER', '구리'], ['DRAM', 'D램'], ['NAND', '낸드']];
+function sChorus(B, t, F, v2) {
+  const tc = B * SPB; // chorus-1 seconds
+  // the drop
+  if (tc >= 29.0 && tc < 29.95) {
+    g.save(); g.globalAlpha *= 1 - pr(tc, 29.6, 29.95);
+    chars('CHORUS', CX, 480, { size: 220, f: 'num', color: 'rgba(0,0,0,0)', stroke: v2 ? C.yellow : C.pink, sw: 5, ls: 20 });
+    g.restore();
+    ring(B, LB(8), CX, 480, { col: v2 ? C.yellow : C.pink, r: 1100, lw: 26, alpha: 0.6 });
+    confetti(B, LB(8), CX, 480, { n: 70, seed: v2 ? 9 : 3, v1: 1900 });
+  }
+  // L8: 비중이 만든 기울기, 사이클이 만든 파장
+  group(B, SB(29.95), LB(9) + 0.3, () => {
+    const tilt = 0.28 * Ease.outBack(pr(B, CW(8, '기울기'), CW(8, '기울기') + 1.4), 1.8);
+    g.save(); g.translate(520, 560); g.rotate(tilt);
+    g.save(); g.shadowColor = C.yellow; g.shadowBlur = 24; g.fillStyle = C.yellow; rr(-330, -12, 660, 24, 12); g.fill(); g.restore();
+    g.fillStyle = C.ewt; rr(-320, -82, 70, 70, 10); g.fill();
+    g.fillStyle = C.ewy; rr(160, -162, 150, 150, 14); g.fill();
+    text('비중', 235, -88, { size: 40, f: 'disp', color: '#120400' });
+    g.restore();
+    g.fillStyle = 'rgba(244,246,255,0.6)'; g.beginPath(); g.moveTo(520, 572); g.lineTo(470, 680); g.lineTo(570, 680); g.closePath(); g.fill();
+    text('비중', 520, 380, { size: 30, w: 800, color: C.inkD, alpha: pr(B, LB(8) + 0.4, LB(8) + 0.8) });
+    revealUp('기울기', 520, 300, { size: 84, f: 'disp', color: C.yellow, glow: C.yellow, blur: 18 }, B, CW(8, '기울기'), 0.5, 0.06);
+    const wp = Ease.inOutSine(pr(B, CW(8, '사이클'), CW(8, '파장') + 0.6));
+    glowPath(wavePts(1000, 1780, 560, 150, 2, t * 3, wp), C.pink, 10, 30);
+    text('사이클', 1390, 380, { size: 30, w: 800, color: C.inkD, alpha: pr(B, CW(8, '사이클'), CW(8, '사이클') + 0.4) });
+    revealUp('파장', 1390, 300, { size: 84, f: 'disp', color: C.pink, glow: C.pink, blur: 18 }, B, CW(8, '파장'), 0.5, 0.06);
+  }, { dy: 60, dout: 0.3 });
+  // L9: 한 종목의 무게가 지수를 흔들어
+  group(B, LB(9), LB(10) + 0.3, () => {
+    const b1 = CW(9, '흔들어'), shake = B > b1 ? Math.exp(-((B - b1) % 1) * 3) : 0;
+    g.save(); g.translate(560, 500);
+    donutW(B, 0, 0, 200, LB(9), [[0.2, C.tsmc]], 'TSMC 비중');
+    text('대만 지수', 0, -280, { size: 44, f: 'disp' });
+    g.restore();
+    g.save(); g.translate(1360 + vnoise(t * 22, 3) * 22 * shake, 500 + vnoise(t * 22, 4) * 14 * shake); g.rotate(vnoise(t * 18, 5) * 0.06 * shake);
+    donutW(B, 0, 0, 200, CW(9, '무게') - 0.4, [[0.3, C.samsung], [0.3, C.hynix]], '삼전 + 닉스 비중');
+    text('한국 지수', 0, -280, { size: 44, f: 'disp' });
+    g.restore();
+  }, { dy: 60, dout: 0.3 });
+  // L10–L11: TSMC stops at −6%, Samsung and Hynix go deeper
+  group(B, LB(10), LB(12) + 0.3, () => {
+    ddBars(B, [
+      { tk: 'TSMC', s: '대만', v: 6, col: C.tsmc, b: CW(10, '여섯') - 0.3 },
+      { tk: '삼성전자', f: 'disp', s: '한국', v: 20, col: C.samsung, b: CW(11, '삼성') - 0.2 },
+      { tk: 'SK하이닉스', f: 'disp', s: '한국', v: 33, col: C.hynix, b: CW(11, '하이닉스') - 0.2 },
+    ], 560, 420, 300, 13, { ns: 76 });
+    popAt(B, CW(10, '그치고'), 560, 500, () => text('여기서 그침', 0, 0, { size: 34, f: 'disp', color: C.tsmc }));
+  }, { dy: 60, dout: 0.3 });
+  // L12: 원자재처럼 사고파는 기억의 칩들 — a commodity board with memory chips on it
+  group(B, LB(12), LB(13) + 0.3, () => {
+    neonBox(260, SY0 + 20, 1400, 620, C.gold, 30, '#0B0B08');
+    text('COMMODITY BOARD', 320, SY0 + 76, { size: 34, f: 'num', color: C.gold, align: 'left', ls: 6 });
+    pill('가설', 1600, SY0 + 76, { size: 26, w: 900, fill: C.violet, color: C.white, align: 'right' });
+    COMM.forEach(([en, ko], i) => {
+      const mem = i >= 2, y = SY0 + 160 + i * 110;
+      const p = popE(B, mem ? CW(12, '기억의') - 0.6 + (i - 2) * 0.5 : CW(12, '원자재') + 0.3 + i * 0.7, 0.45, 1.6);
+      if (p <= 0) return;
+      g.save(); g.globalAlpha *= clamp(p); g.translate((1 - clamp(p)) * 80, 0);
+      g.fillStyle = mem ? 'rgba(255,90,54,0.12)' : 'rgba(244,246,255,0.04)'; rr(300, y - 46, 1320, 92, 14); g.fill();
+      if (mem) chip(360, y, 0.28, C.hynix, '');
+      text(en, mem ? 420 : 330, y + 3, { size: 46, f: 'num', color: mem ? C.hynix : C.ink, align: 'left', ls: 3 });
+      text(ko, 640, y + 2, { size: 34, w: 900, color: C.inkD, align: 'left' });
+      // flickering quotes
+      const fl = Math.floor(t * 12 + i * 7);
+      const v = (mem ? 10 + (fl % 9) : 2 + (fl % 3)) * (Math.sin(t * 3 + i) > 0 ? 1 : -1);
+      const col = v < 0 ? C.candle : C.red;
+      text(v < 0 ? '▼' : '▲', 1330, y + 2, { size: 30, w: 900, color: col });
+      text(`${v < 0 ? '−' : '+'}${Math.abs(v)}.${(fl * 7) % 10}%`, 1580, y + 3, { size: 46, f: 'num', color: col, align: 'right', ls: 2 });
+      g.restore();
+    });
+    rise('기억의 칩도 원자재처럼 사고판다?', CX, SY0 + 590, { size: 40, w: 900, color: C.gold }, B, CW(12, '칩들'));
+  }, { dy: 60, dout: 0.3 });
+  // L13: 이번 낙폭엔 그 차이가 비쳤나 봐
+  group(B, LB(13), SB(56.6), () => {
+    const y = 470;
+    popAt(B, LB(13) + 0.2, 560, y, () => { text('한국 EWY', 0, -150, { size: 40, f: 'disp', color: C.ewy }); bigNum('−21%', 0, 10, 220, C.ewy, { rgb: 6 }); });
+    popAt(B, CW(13, '낙폭'), 1360, y, () => { text('대만 EWT', 0, -150, { size: 40, f: 'disp', color: C.ewt }); bigNum('−10%', 0, 10, 220, C.ewt, { rgb: 6 }); });
+    const lp = Ease.outExpo(pr(B, CW(13, '차이'), CW(13, '차이') + 0.8));
+    if (lp > 0) {
+      g.save(); g.shadowColor = C.yellow; g.shadowBlur = 20; g.strokeStyle = C.yellow; g.lineWidth = 6;
+      line(CX - 200 * lp, y + 160, CX + 200 * lp, y + 160); line(CX - 200 * lp, y + 140, CX - 200 * lp, y + 180); line(CX + 200 * lp, y + 140, CX + 200 * lp, y + 180); g.restore();
+      text('그 차이 = 지수 안의 무게', CX, y + 220, { size: 40, f: 'disp', color: C.yellow, alpha: lp });
+    }
+  }, { dy: 60, dout: 0.3 });
+}
+
+/* ============================================================
+   VERSE 2 (57.6–77.6 s)
+   ============================================================ */
+const HYNIX = (() => { const c = []; let v = 100; for (let i = 0; i < 34; i++) { v *= i < 22 ? 1 + (rnd(i, 51) - 0.35) * 0.05 : 1 - 0.022 - rnd(i, 52) * 0.02; c.push(v); } return c; })();
+const HY_LO = Math.min(...HYNIX) - 6, HY_HI = Math.max(...HYNIX) + 6;
+function sVerse2(B, t, F) {
+  // L14–L15: the big pillar (20%) and the combined weight (60%)
+  group(B, LB(14), LB(16) + 0.3, () => {
+    g.save(); g.translate(560, 480);
+    text('대만 지수', 0, -290, { size: 48, f: 'disp' });
+    donutW(B, 0, 0, 220, CW(14, '스무') - 0.4, [[0.2, C.tsmc]], 'TSMC 한 종목');
+    g.restore();
+    popAt(B, CW(14, '기둥'), 560, 780, () => pill('큰 기둥', 0, 0, { size: 30, w: 900, fill: C.tsmc, color: C.white, align: 'center' }));
+    const on = B >= CW(15, '둘이') - 0.4;
+    g.save(); g.translate(1360, 480); g.globalAlpha *= B >= LB(15) - 0.3 ? 1 : 0.3;
+    text('한국 지수', 0, -290, { size: 48, f: 'disp' });
+    if (on) donutW(B, 0, 0, 220, CW(15, '둘이') - 0.4, [[0.3, C.samsung], [0.3, C.hynix]], '삼성전자 + SK하이닉스');
+    else { arcStroke(0, 0, 220, 0, TAU, 'rgba(244,246,255,0.1)', 80, 'butt'); text('?', 0, 20, { size: 140, f: 'disp', color: C.inkS }); }
+    g.restore();
+    ring(B, CW(15, '예순'), 1360, 480, { col: C.ewy, r: 500, lw: 16, alpha: 0.5 });
+    popAt(B, CW(15, '예순') + 0.3, 1360, 780, () => pill('둘이 합쳐 60%의 무게', 0, 0, { size: 30, w: 900, fill: C.ewy, color: '#120400', align: 'center' }));
+  }, { dy: 60, dout: 0.3 });
+  // L16: 십 월 이후 하이닉스 서른셋 아래 — falling candles
+  group(B, LB(16), LB(17) + 0.3, () => {
+    const x = 160, y = SY0 + 10, w = 1000, h = 630;
+    g.fillStyle = '#000'; rr(x, y, w, h, 20); g.fill(); g.lineWidth = 2; g.strokeStyle = 'rgba(244,246,255,0.12)'; rr(x, y, w, h, 20); g.stroke();
+    text('SK하이닉스', x + 30, y + 46, { size: 34, f: 'disp', color: C.hynix, align: 'left' });
+    tag('개념도', x + w - 24, y + 46);
+    const my = (v) => lerp(y + h - 40, y + 90, (v - HY_LO) / (HY_HI - HY_LO));
+    const shown = HYNIX.length * Ease.inOutSine(pr(B, LB(16), CW(16, '서른셋') + 0.6));
+    const cw = (w - 60) / HYNIX.length;
+    for (let i = 0; i < shown; i++) {
+      const c = HYNIX[i], o = i ? HYNIX[i - 1] : 99, up = c >= o, cx = x + 30 + cw * (i + 0.5);
+      g.strokeStyle = up ? '#CFD6E6' : C.candle; g.lineWidth = 2; line(cx, my(Math.max(o, c) + 1.2), cx, my(Math.min(o, c) - 1.2));
+      if (up) g.strokeRect(cx - cw * 0.3, my(c), cw * 0.6, Math.max(2, my(o) - my(c)));
+      else { g.save(); g.shadowColor = C.candle; g.shadowBlur = 10; g.fillStyle = C.candle; g.fillRect(cx - cw * 0.3, my(o), cw * 0.6, Math.max(2, my(c) - my(o))); g.restore(); }
+    }
+    const pk = Math.max(...HYNIX.slice(0, 23));
+    if (B >= CW(16, '하이닉스')) { dashed(x + 30, my(pk), x + w - 30, my(pk), C.hynix, 2, [6, 6]); text('10월 고점', x + 40, my(pk) - 20, { size: 22, w: 800, color: C.hynix, align: 'left' }); }
+    popAt(B, CW(16, '서른셋'), 1490, 470, () => { text('10월 이후', 0, -150, { size: 40, w: 900, color: C.inkD }); bigNum('−33%', 0, 20, 230, C.hynix, { rgb: 6 }); });
+  }, { dy: 60, dout: 0.3 });
+  // L17: 삼성은 스무 걸음 뒤로 물러섰네 — 20 footsteps backwards
+  group(B, LB(17), SB(77.9), () => {
+    const n = Math.floor(20 * pr(B, CW(17, '스무'), CW(17, '물러섰네') + 0.8));
+    // twenty chevrons pointing back, lit one per step
+    for (let i = 0; i < 20; i++) {
+      const on = i < n, x = 1600 - i * 66, k = on ? popE(B, CW(17, '스무') + (i / 20) * (CW(17, '물러섰네') + 0.8 - CW(17, '스무')), 0.3, 2) : 1;
+      g.save(); g.translate(x, 610); g.scale(k, k);
+      g.strokeStyle = on ? C.samsung : 'rgba(244,246,255,0.12)'; g.lineWidth = 12; g.lineCap = 'round'; g.lineJoin = 'round';
+      if (on) { g.shadowColor = C.samsung; g.shadowBlur = 18; }
+      g.beginPath(); g.moveTo(14, -34); g.lineTo(-16, 0); g.lineTo(14, 34); g.stroke();
+      g.restore();
+    }
+    text('0', 1630, 690, { size: 26, f: 'num', color: C.inkS });
+    text('−20', 1600 - 19 * 66, 690, { size: 26, f: 'num', color: n >= 20 ? C.samsung : C.inkS });
+    rise('삼성전자', CX, 290, { size: 84, f: 'disp', color: C.white, glow: C.samsung, blur: 20 }, B, LB(17));
+    bigNum(`−${n}%`, CX, 440, 150, C.samsung);
+    rise('스무 걸음 뒤로', CX, 760, { size: 36, w: 900, color: C.samsung }, B, CW(17, '물러섰네'));
+  }, { dy: 50, dout: 0.3 });
+}
+
+/* ============================================================
+   PRE-CHORUS 2 (78.0–96.9 s)
+   ============================================================ */
+function sPre2(B, t, F) {
+  // L18: 수요가 식을 때 재고는 쌓이고
+  group(B, LB(18), LB(19) + 0.3, () => {
+    const cool = Ease.inOutSine(pr(B, CW(18, '식을') - 0.4, CW(18, '식을') + 2));
+    const tx = 560, ty = 230;
+    rr(tx - 40, ty, 80, 420, 40); g.fillStyle = C.panel2; g.fill(); g.lineWidth = 4; g.strokeStyle = 'rgba(244,246,255,0.3)'; g.stroke();
+    const lv = lerp(380, 90, cool), col = cool > 0.5 ? C.cyan : C.red;
+    g.save(); g.shadowColor = col; g.shadowBlur = 24; g.fillStyle = col; rr(tx - 22, ty + 410 - lv, 44, lv, 22); g.fill(); circle(tx, ty + 440, 60, col); g.restore();
+    text('수요', tx, ty - 50, { size: 56, f: 'disp' });
+    text(cool > 0.5 ? '식는 중' : '뜨거움', tx, ty + 550, { size: 34, w: 900, color: col });
+    const b0 = CW(18, '재고') - 0.5;
+    for (let i = 0; i < 12; i++) {
+      const p = Ease.outBack(pr(B, b0 + i * 0.3, b0 + i * 0.3 + 0.4), 1.4);
+      if (p <= 0) break;
+      const cc = i % 4, row = Math.floor(i / 4), bx = 1060 + cc * 150, by = 700 - row * 130 - (1 - p) * 300;
+      g.save(); g.globalAlpha *= clamp(p * 2); g.fillStyle = '#B7793B'; rr(bx, by - 120, 140, 120, 8); g.fill();
+      g.fillStyle = '#8E5A26'; g.fillRect(bx + 55, by - 120, 30, 120); text('DRAM', bx + 70, by - 50, { size: 18, f: 'num', color: '#3A2208', ls: 2 }); g.restore();
+    }
+    text('재고', 1360, 220, { size: 56, f: 'disp', alpha: pr(B, b0, b0 + 0.4) });
+  }, { dy: 60, dout: 0.3 });
+  // L19: 메모리 가격은 먼저 흔들릴 수 있어
+  group(B, LB(19), LB(20) + 0.3, () => {
+    const x = 160, y = SY0 + 20, w = 1600, h = 600;
     panel(x, y, w, h, { r: 30 });
-    tag('개념도', x + w - 40, y + h - 36);
-    const x0 = x + 380, x1 = x + w - 60;
-    const p = Ease.inOutSine(pr(B, 145, 149)), ph = t * 1.6;
-    // memory
-    const my = y + 170, fy = y + 410;
-    dashed(x0, my, x1, my, 'rgba(244,246,255,0.1)', 2, [4, 8]); dashed(x0, fy, x1, fy, 'rgba(244,246,255,0.1)', 2, [4, 8]);
-    const hm = wave(x0, x1, my, 105, 2.2, ph, p, C.hynix, 8);
-    const hf = wave(x0, x1, fy, 22, 2.2, ph + 0.6, Ease.inOutSine(pr(B, 146, 150)), C.cyan, 8);
-    if (hm) circle(hm[0], hm[1], 11, C.hynix);
-    if (hf && B >= 146) circle(hf[0], hf[1], 11, C.cyan);
-    const l1 = popE(B, 145, 0.45), l2 = popE(B, 146, 0.45);
-    if (l1 > 0) { g.save(); g.translate(x + 50, my); g.scale(l1, l1); text('메모리', 0, -22, { size: 56, f: 'disp', color: C.hynix, align: 'left' }); text('삼성전자 · SK하이닉스', 0, 30, { size: 24, w: 700, color: C.inkD, align: 'left' }); g.restore(); }
-    if (l2 > 0) { g.save(); g.translate(x + 50, fy); g.scale(l2, l2); text('파운드리', 0, -22, { size: 56, f: 'disp', color: C.cyan, align: 'left' }); text('TSMC', 0, 30, { size: 26, f: 'num', color: C.inkD, align: 'left', ls: 2 }); g.restore(); }
-    const a1 = popE(B, 151, 0.45, 2.4), a2 = popE(B, 152, 0.45, 2.4);
-    if (a1 > 0) { g.save(); g.translate(x1 - 120, y + 50); g.scale(a1, a1); pill('변동성 큼', 0, 0, { size: 30, w: 900, fill: C.hynix, color: '#120400', align: 'center' }); g.restore(); }
-    if (a2 > 0) { g.save(); g.translate(x1 - 120, fy - 70); g.scale(a2, a2); pill('상대적으로 안정', 0, 0, { size: 30, w: 900, fill: C.cyan, color: '#001218', align: 'center' }); g.restore(); }
-    // hypothesis
-    if (B >= 155.6) {
-      const hp = popE(B, 156, 0.45, 2.4);
-      if (hp > 0) { g.save(); g.translate(x + 40, 800); g.scale(hp, hp); pill('가설', 0, 0, { size: 32, w: 900, fill: C.violet, color: C.white, align: 'left' }); g.restore(); }
-      const o = { size: 60, f: 'disp', colorFn: hl('시장은 메모리를 시클리컬 원자재로 본다?', '시클리컬 원자재', C.hynix), align: 'left' };
-      revealUp('시장은 메모리를 시클리컬 원자재로 본다?', x + 180, 800, o, B, 156, 0.6, 0.015);
+    tag('개념도', x + w - 30, y + 46);
+    const p = Ease.inOutSine(pr(B, LB(19), CW(19, '흔들릴') + 2)), xs = x + 60, xe = x + w - 260;
+    const mem = [], fdy = [];
+    for (let k = 0; k <= 120; k++) {
+      const u = k / 120; if (u > p) break;
+      const X = lerp(xs, xe, u);
+      mem.push([X, y + 220 + (u > 0.45 ? (u - 0.45) * 520 : 0) + Math.sin(u * 60) * 14 * u + vnoise(u * 30, 2) * 18]);
+      fdy.push([X, y + 300 + (u > 0.7 ? (u - 0.7) * 90 : 0) + vnoise(u * 20, 5) * 6]);
     }
-    if (B >= 160) {
-      rise('그래서 같은 하락장에서도 출렁임이 더 크다', x + 44, 905, { size: 40, w: 800, color: C.inkD, align: 'left' }, B, 160);
-      const cp = popE(B, 162, 0.45, 2.2), cq = popE(B, 163, 0.45, 2.2);
-      if (cp > 0) { g.save(); g.translate(1330, 905); g.scale(cp, cp); pill('닉스 −33%', 0, 0, { size: 34, w: 900, fill: C.hynix, color: '#120400', align: 'center' }); g.restore(); }
-      if (cq > 0) { g.save(); g.translate(1640, 905); g.scale(cq, cq); pill('TSMC −6%', 0, 0, { size: 34, w: 900, fill: C.cyan, color: '#001218', align: 'center' }); g.restore(); }
+    glowPath(fdy, C.cyan, 6, 18); glowPath(mem, C.hynix, 7, 22);
+    if (mem.length) { const m = mem[mem.length - 1], f = fdy[fdy.length - 1]; text('메모리 가격', m[0] + 20, m[1], { size: 30, w: 900, color: C.hynix, align: 'left' }); text('파운드리', f[0] + 20, f[1], { size: 30, w: 900, color: C.cyan, align: 'left' }); }
+    if (p > 0.45) { const X = lerp(xs, xe, 0.45); dashed(X, y + 120, X, y + h - 40, C.yellow, 3); popAt(B, CW(19, '먼저'), X, y + 90, () => pill('먼저 흔들린다', 0, 0, { size: 30, w: 900, fill: C.yellow, color: '#1A1000', align: 'center' })); }
+  }, { dy: 60, dout: 0.3 });
+  // L20: 파운드리와 다른 리듬을 타는 이유 — two equalisers
+  group(B, LB(20), LB(21) + 0.3, () => {
+    const k = env(KICKS, t, 6);
+    [[560, C.cyan, '파운드리', 0.35, 1.2], [1360, C.hynix, '메모리', 1, 3.4]].forEach(([cx, col, nm, amp, sp]) => {
+      text(nm, cx, 260, { size: 60, f: 'disp', color: col });
+      for (let i = 0; i < 9; i++) {
+        const hh = 40 + 380 * amp * (0.5 + 0.5 * Math.sin(t * sp * 2 + i * 0.9)) * (0.7 + 0.3 * k);
+        g.save(); g.shadowColor = col; g.shadowBlur = 16; g.fillStyle = col; rr(cx - 300 + i * 68, 760 - hh, 48, hh, 10); g.fill(); g.restore();
+      }
+    });
+    rise('다른 리듬', CX, 470, { size: 40, f: 'disp', color: C.inkD }, B, CW(20, '리듬'));
+  }, { dy: 60, dout: 0.3 });
+  // L21: 그 가설을 숫자에 겹쳐 보네
+  group(B, LB(21), SB(97.3), () => {
+    [['SK하이닉스', '−33%', C.hynix], ['삼성전자', '−20%', C.samsung], ['TSMC', '−6%', C.tsmc]].forEach(([nm, v, col], i) => {
+      popAt(B, CW(21, '가설') + i * 0.5, 460 + i * 500, 470, () => { text(nm, 0, -130, { size: 38, f: 'disp', color: col }); bigNum(v, 0, 20, 170, col); });
+    });
+    const sp = Ease.outExpo(pr(B, CW(21, '겹쳐'), CW(21, '겹쳐') + 0.4));
+    if (sp > 0) {
+      g.save(); g.translate(CX, 650); g.rotate(-0.1); g.scale(lerp(2.4, 1, sp), lerp(2.4, 1, sp)); g.globalAlpha *= Math.min(1, sp * 3);
+      g.strokeStyle = C.violet; g.lineWidth = 10; g.shadowColor = C.violet; g.shadowBlur = 30; rr(-230, -90, 460, 180, 20); g.stroke();
+      g.shadowBlur = 0; g.fillStyle = 'rgba(6,8,15,0.7)'; rr(-225, -85, 450, 170, 18); g.fill();
+      text('가설', 0, 6, { size: 120, f: 'disp', color: C.violet });
+      g.restore();
     }
-  }, { dy: 60, dout: 0.35 });
+  }, { dy: 60, dout: 0.15 });
 }
 
 /* ============================================================
-   05 미국도 같은 그림 (B168–200): NCLD vs MAGS candles
+   INTERLUDE + BRIDGE (124.6–146.9 s)
    ============================================================ */
-const NCLD_C = [23.2, 23.4, 22.6, 22.8, 25.4, 26.8, 26.9, 27.0, 25.0, 23.8, 23.6, 23.0, 23.6, 23.2, 22.2, 21.6, 21.2, 21.0, 22.8, 25.6, 26.2, 24.0, 23.8, 22.4, 22.3, 23.4, 23.9, 24.6, 25.0, 24.7, 24.0, 23.6, 23.8, 23.2, 24.0, 24.2, 24.4, 23.6, 22.0, 21.6, 21.2, 20.0, 18.4, 17.0, 16.6];
-const MAGS_C = [68.0, 69.5, 68.6, 69.0, 69.3, 68.4, 67.8, 67.2, 66.8, 67.0, 67.2, 67.4, 67.6, 68.2, 68.6, 69.4, 70.0, 69.2, 68.8, 69.0, 69.6, 69.8, 69.4, 70.4, 70.8, 73.0, 72.6, 72.2, 72.4, 71.8, 71.4, 71.6, 72.0, 72.6, 73.6, 74.0, 73.8, 73.4, 73.8, 74.2, 74.6, 73.0, 72.2, 71.6];
-function mkCandles(cl, seed, vol) {
-  return cl.map((c, i) => {
-    const o = i ? cl[i - 1] + (rnd(i, seed) - 0.5) * vol * 0.6 : c - vol * 0.3;
-    return { o, c, h: Math.max(o, c) + rnd(i, seed + 1) * vol * 0.7, l: Math.min(o, c) - rnd(i, seed + 2) * vol * 0.7 };
-  });
-}
-const NCLD = mkCandles(NCLD_C, 21, 0.9), MAGS = mkCandles(MAGS_C, 31, 0.6);
-function candleChart(x, y, w, h, data, lo, hi, step, p, o) {
-  g.fillStyle = '#000'; rr(x, y, w, h, 18); g.fill();
-  g.lineWidth = 2; g.strokeStyle = 'rgba(244,246,255,0.1)'; rr(x, y, w, h, 18); g.stroke();
-  const ax = x + w - 110, py0 = y + 90, py1 = y + h - 50;
-  const my = (v) => lerp(py1, py0, (v - lo) / (hi - lo));
-  g.fillStyle = 'rgba(244,246,255,0.5)'; g.fillRect(ax, py0 - 30, 2, py1 - py0 + 50);
-  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) { g.fillRect(ax, my(v) - 1, 10, 2); text(v.toFixed(2), ax + 18, my(v), { size: 20, f: 'num', color: C.inkD, align: 'left', ls: 1 }); }
-  text(o.tk, x + 30, y + 46, { size: 44, f: 'num', color: C.white, align: 'left', ls: 2 });
-  text(o.nm, x + 40 + textW(o.tk, 44, 400, 2, 'num'), y + 48, { size: 24, w: 800, color: C.inkD, align: 'left' });
-  const n = data.length, cw = (ax - x - 50) / n, shown = n * p;
-  for (let i = 0; i < n; i++) {
-    const a = clamp(shown - i);
-    if (a <= 0) break;
-    const d = data[i], cx = x + 30 + cw * (i + 0.5), up = d.c >= d.o;
-    const top = my(Math.max(d.o, d.c)), bot = my(Math.min(d.o, d.c));
-    g.save(); g.globalAlpha *= a; g.translate(0, (1 - a) * 20);
-    g.strokeStyle = up ? '#CFD6E6' : C.candle; g.lineWidth = 2;
-    line(cx, my(d.h), cx, my(d.l));
-    const bw = cw * 0.62;
-    if (up) { g.fillStyle = '#000'; g.fillRect(cx - bw / 2, top, bw, Math.max(2, bot - top)); g.strokeRect(cx - bw / 2, top, bw, Math.max(2, bot - top)); }
-    else { g.save(); g.shadowColor = C.candle; g.shadowBlur = 10; g.fillStyle = C.candle; g.fillRect(cx - bw / 2, top, bw, Math.max(2, bot - top)); g.restore(); }
-    g.restore();
-  }
-  return { my, cx: (i) => x + 30 + cw * (i + 0.5), ax };
-}
-function usBracket(B, b0, ch, data, col, label) {
-  if (B < b0) return;
-  let pi = 0; data.forEach((d, i) => { if (i >= data.length * 0.6 && d.c > data[pi].c) pi = i; });
-  if (pi === 0) pi = data.length - 6;
-  const last = data.length - 1, ppy = ch.my(data[pi].c), ey = ch.my(data[last].c), bx = ch.cx(last) + 30;
-  const lp = Ease.outCubic(pr(B, b0, b0 + 0.6));
-  dashed(ch.cx(pi), ppy, lerp(ch.cx(pi), bx + 20, lp), ppy, col, 2, [5, 5]);
-  dashed(ch.cx(pi) - 40, ey, lerp(ch.cx(pi) - 40, bx + 20, lp), ey, col, 2, [5, 5]);
-  dropBracket(bx, ppy, ey, col, pr(B, b0 + 0.4, b0 + 1.1));
-  const sp = popE(B, b0 + 1, 0.45, 2.4);
-  if (sp > 0) {
-    g.save(); g.translate(bx - 34, (ppy + ey) / 2); g.scale(sp, sp);
-    const lw = textW(label, 64, 400, 1, 'num');
-    g.fillStyle = 'rgba(0,0,0,0.8)'; rr(-lw - 18, -42, lw + 30, 84, 14); g.fill();
-    chars(label, 0, 4, { size: 64, f: 'num', color: col, glow: col, blur: 22, align: 'right', ls: 1 });
-    g.restore();
-  }
-}
-function sUS(B, t, F) {
-  group(B, 171.6, 200.2, () => {
-    const y = 200, h = 640;
-    const ch1 = candleChart(110, y, 830, h, NCLD, 15.5, 28.5, 2, Ease.inOutSine(pr(B, 172, 178.5)), { tk: 'NCLD', nm: '라운드힐 네오클라우드 ETF' });
-    usBracket(B, 178.5, ch1, NCLD, C.red, '−32%');
-    const ap = Ease.outCubic(pr(B, 183.6, 184.2));
-    g.save(); g.globalAlpha *= 0.35 + 0.65 * ap;
-    const ch2 = candleChart(980, y, 830, h, MAGS, 65.5, 75.5, 1, Ease.outCubic(pr(B, 184, 188)), { tk: 'MAGS', nm: '라운드힐 매그니피센트7 ETF' });
-    g.restore();
-    if (B >= 184) ring(B, 184, 1395, 520, { col: C.mint, r: 700, lw: 18, alpha: 0.5 });
-    usBracket(B, 189, ch2, MAGS, C.mint, '−4%');
-    tag('첨부 차트 재현', 1810, y + h + 32);
-    if (B >= 192) {
-      const o = { size: 50, f: 'disp', colorFn: hl('하이퍼스케일러와 초대형 성장기업은 견조', '견조', C.mint) };
-      revealUp('하이퍼스케일러와 초대형 성장기업은 견조', CX, 920, o, B, 192, 0.6, 0.015);
-      rise('흔들린 건 일부 네오클라우드', CX, 990, { size: 32, w: 800, color: C.inkD }, B, 194);
-    } else if (B >= 180) {
-      rise('네오클라우드는 10월 고점에서 −32%', 525, 920, { size: 38, w: 900, color: C.red }, B, 180);
-      if (B >= 189.5) rise('매그니피센트7은 단지 −4%', 1395, 920, { size: 38, w: 900, color: C.mint }, B, 189.5);
+const TAPE = [['EWY', '한국', -21], ['EWT', '대만', -10], ['TSMC', '대만', -6], ['삼성전자', '한국', -20], ['SK하이닉스', '한국', -33]];
+function tape(y, t, speed, alpha = 1, h = 60) {
+  const a0 = g.globalAlpha; g.globalAlpha = a0 * alpha;
+  g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(-40, y - h / 2, W + 80, h);
+  g.fillStyle = C.ewy; g.fillRect(-40, y - h / 2, W + 80, 2); g.fillRect(-40, y + h / 2 - 2, W + 80, 2);
+  const items = TAPE.map(([n, p, c]) => ({ n, p, c, w: textW(n, 28, 900) + textW(p, 24, 700) + textW(`▼ −${Math.abs(c)}%`, 28, 400, null, 'num') + 120 }));
+  const tot = items.reduce((s, it) => s + it.w, 0);
+  let x = -((((t * speed) % tot) + tot) % tot);
+  while (x < W) {
+    for (const it of items) {
+      if (x > W) break;
+      if (x + it.w > -40) {
+        let xx = x + 30;
+        xx += text(it.n, xx, y + 1, { size: 28, w: 900, align: 'left' }) + 14;
+        xx += text(it.p, xx, y + 2, { size: 24, w: 700, color: C.inkD, align: 'left' }) + 14;
+        text(`▼ −${Math.abs(it.c)}%`, xx, y + 3, { size: 28, f: 'num', color: C.candle, align: 'left', ls: 1 });
+      }
+      x += it.w;
     }
-  }, { dy: 60, dout: 0.35 });
+  }
+  g.globalAlpha = a0;
 }
-
-/* ============================================================
-   06 마무리 (B200–240): scoreboard, doubts, rates, 심리
-   ============================================================ */
-const SOLID = [['매그니피센트7', '−4%', 205.5], ['TSMC', '−6%', 207.5]];
-const SHAKY = [['네오클라우드 (코어위브 등)', '−32%', 209.5], ['메모리 (SK하이닉스)', '−33%', 211.5]];
-function sClose(B, t, F) {
-  group(B, 203.6, 216.3, () => {
-    revealUp('숫자로 확인되는 AI 펀더멘탈은 여전히 견조', CX, 240, { size: 56, f: 'disp', colorFn: hl('숫자로 확인되는 AI 펀더멘탈은 여전히 견조', '견조', C.mint) }, B, 204, 0.6, 0.012);
-    const cols = [[SOLID, C.mint, '견조', 110], [SHAKY, C.red, '흔들린 곳', 990]];
-    cols.forEach(([rows, col, head, x], ci) => {
-      const hp = popE(B, 204.8 + ci * 4, 0.5, 1.8);
-      if (hp <= 0) return;
-      g.save(); g.globalAlpha *= clamp(hp);
-      panel(x, 330, 820, 580, { r: 30, stroke: col, lw: 3 });
-      g.save(); g.shadowColor = col; g.shadowBlur = 20; pill(head, x + 40, 400, { size: 38, f: 'disp', fill: col, color: '#08090C', align: 'left' }); g.restore();
-      rows.forEach(([n, v, b], i) => {
-        const p = popE(B, b, 0.45, 2);
-        if (p <= 0) return;
-        const yy = 540 + i * 190;
-        g.save(); g.translate(x + 60, yy); g.scale(1, p);
-        text(n, 0, 0, { size: fitSize(n, 340, 40, 900), w: 900, align: 'left' });
-        chars(v, 670, 4, { size: 100, f: 'num', color: col, glow: col, blur: 24, align: 'right', ls: 1 });
-        g.restore();
-        if (ci === 0) checkMark(x + 760, yy, 54, col, pr(B, b + 0.2, b + 0.6), 9);
+function sBridge(B, t, F) {
+  // interlude: the title again over a tape of the numbers
+  group(B, SB(124.75), LB(28) + 0.2, () => {
+    logo('반도체의 계절', CX, 400, 150, B, SB(124.9), { grad: [C.white, C.mint], glow: C.mint, ext: '#06352A' });
+    tape(600, t, 180, 1, 56);
+    rise('10월 고점 대비 · 달러 기준', CX, 720, { size: 34, w: 800, color: C.inkD }, B, SB(126.0));
+  }, { dy: 0, dout: 0.3 });
+  // L28: 다만 두 ETF의 구성과 환율도
+  group(B, LB(28), LB(29) + 0.3, () => {
+    text('ETF 구성', 300, SY0 + 40, { size: 44, f: 'disp', align: 'left', alpha: pr(B, CW(28, 'ETF'), CW(28, 'ETF') + 0.4) });
+    [['EWT', [[0.2, C.tsmc, 'TSMC 20%'], [0.8, 'rgba(244,246,255,0.18)', '기타 80%']], C.ewt], ['EWY', [[0.6, C.ewy, '삼전+닉스 60%'], [0.4, 'rgba(244,246,255,0.18)', '기타 40%']], C.ewy]].forEach(([tk, segs, col], i) => {
+      const b0 = CW(28, 'ETF') + i * 0.6, y = SY0 + 140 + i * 150, p = Ease.outCubic(pr(B, b0, b0 + 1.2));
+      if (p <= 0) return;
+      text(tk, 300, y + 40, { size: 50, f: 'num', color: col, align: 'left', ls: 3 });
+      let x = 440;
+      segs.forEach(([v, c, lab]) => {
+        const w = 780 * v * p;
+        g.fillStyle = c; rr(x, y, Math.max(0, w - 6), 80, 10); g.fill();
+        if (p > 0.9) text(lab, x + w / 2, y + 42, { size: 24, w: 900, color: c.startsWith('rgba') ? C.inkD : '#0A0A0A' });
+        x += w;
       });
+    });
+    text('환율', 1360, SY0 + 40, { size: 44, f: 'disp', align: 'left', alpha: pr(B, CW(28, '환율') - 0.3, CW(28, '환율')) });
+    [['USD/KRW', '원화', C.ewy], ['USD/TWD', '대만달러', C.ewt]].forEach(([pair, ko, col], i) => {
+      popAt(B, CW(28, '환율') + i * 0.5, 1520, SY0 + 180 + i * 150, () => {
+        neonBox(-180, -55, 360, 110, col, 24);
+        text(pair, -150, -8, { size: 40, f: 'num', color: col, align: 'left', ls: 2 });
+        text(ko, -150, 32, { size: 22, w: 800, color: C.inkD, align: 'left' });
+        const up = Math.sin(t * 2 + i * 2) > 0; text(up ? '▲' : '▼', 130, 2, { size: 40, w: 900, color: up ? C.red : C.candle });
+      });
+    });
+    rise('구성과 환율도 결과를 바꾼다', CX, SY0 + 560, { size: 40, w: 900, color: C.mint }, B, CW(28, '환율') + 2);
+  }, { dy: 60, dout: 0.3 });
+  // L29: 같은 그림을 다르게 만들 수 있어 — one path, two lenses
+  group(B, LB(29), LB(30) + 0.3, () => {
+    const pts = []; for (let k = 0; k <= 80; k++) { const u = k / 80; pts.push([u, Math.sin(u * 5) * 0.3 + u * 0.4 + vnoise(k * 0.5, 3) * 0.08]); }
+    [[180, C.ewy, '원화로 보면', LB(29) + 0.2], [1000, C.ewt, '달러로 보면', CW(29, '다르게')]].forEach(([x, col, lab, b0], i) => {
+      const p = popE(B, b0, 0.5, 1.6);
+      if (p <= 0) return;
+      g.save(); g.globalAlpha *= clamp(p);
+      neonBox(x, SY0 + 40, 740, 520, col, 30);
+      text(lab, x + 40, SY0 + 96, { size: 40, f: 'disp', color: col, align: 'left' });
+      const sk = i ? 0.75 : 1.15;
+      glowPath(pts.map(([u, v]) => [x + 50 + u * 640, SY0 + 420 - v * 260 * sk - (i ? u * 40 : 0)]), col, 6, 18);
+      g.restore();
+    });
+    tag('개념도', 1740, SY0 + 600);
+    rise('같은 그림, 다른 모양', CX, SY0 + 610, { size: 38, w: 900, color: C.inkD }, B, CW(29, '다르게') + 1.5);
+  }, { dy: 60, dout: 0.3 });
+  // L30: 하나의 설명으로 결론 내리기보다
+  group(B, LB(30), LB(31) + 0.3, () => {
+    popAt(B, LB(30) + 0.2, 560, 480, () => { neonBox(-240, -70, 480, 140, C.inkS, 70); text('하나의 설명', 0, 4, { size: 54, f: 'disp' }); }, 0.45, 2);
+    const x = Ease.outExpo(pr(B, CW(30, '결론'), CW(30, '결론') + 0.4));
+    if (x > 0) { g.save(); g.strokeStyle = C.red; g.lineWidth = 12; g.lineCap = 'round'; g.shadowColor = C.red; g.shadowBlur = 20; line(330, 400, 330 + 460 * x, 400 + 160 * x); g.restore(); }
+    [['비중', C.pink], ['업황', C.hynix], ['환율', C.ewt], ['구성', C.mint]].forEach(([s, col], i) => {
+      const b0 = CW(30, '내리기') + i * 0.45, ap = Ease.outCubic(pr(B, b0, b0 + 0.5));
+      if (ap <= 0) return;
+      const ty = 270 + i * 140;
+      g.save(); g.globalAlpha *= ap;
+      g.strokeStyle = col; g.lineWidth = 5; g.beginPath(); g.moveTo(820, 480); g.bezierCurveTo(980, 480, 1040, ty, lerp(820, 1200, ap), ty); g.stroke();
+      pill(s, 1210, ty, { size: 44, f: 'disp', fill: col, color: '#0A0A0A', align: 'left' });
       g.restore();
     });
   }, { dy: 60, dout: 0.3 });
-  // doubts land at once (B216–228)
-  group(B, 216, 228.3, () => {
-    revealUp('흔들리는 곳엔 의심이 한꺼번에 반영됐다', CX, 250, { size: 54, f: 'disp' }, B, 216, 0.5, 0.012);
-    ['이자부담', '현금흐름', '수요의 지속성'].forEach((s, i) => {
-      const b = 216 + i, p = Ease.outExpo(pr(B, b, b + 0.35));
-      if (p <= 0) return;
-      const cx = 420 + i * 540, cy = 480;
-      g.save(); g.translate(cx, cy - (1 - p) * 300); g.rotate((i - 1) * 0.05 * (1 - p) + (i - 1) * 0.02); g.globalAlpha *= Math.min(1, p * 3);
-      g.save(); g.shadowColor = C.red; g.shadowBlur = 30; rr(-240, -90, 480, 180, 26); g.fillStyle = C.panel2; g.fill(); g.restore();
-      g.lineWidth = 4; g.strokeStyle = C.red; rr(-240, -90, 480, 180, 26); g.stroke();
-      text(s, 0, 4, { size: fitSize(s, 400, 72, 400, 'disp'), f: 'disp', color: C.white });
-      g.restore();
+  // L31: 비중과 업황을 함께 살펴보자
+  group(B, LB(31), SB(147.0), () => {
+    [['비중', '지수 안의 무게', C.pink, CW(31, '비중')], ['업황', '사이클의 위치', C.hynix, CW(31, '업황')]].forEach(([s, sub, col, b0], i) => {
+      popAt(B, b0, 560 + i * 800, 480, () => {
+        neonBox(-300, -200, 600, 400, col, 40);
+        text(s, 0, -30, { size: 130, f: 'disp', color: col });
+        text(sub, 0, 90, { size: 34, w: 800, color: C.inkD });
+        circle(220, -140, 44, col); checkMark(220, -136, 54, '#0A0A0A', pr(B, b0 + 0.6, b0 + 1.2), 9);
+      });
     });
-    if (B >= 219.5) rise('→ 그래서 낙폭이 커졌다', CX, 650, { size: 44, w: 900, color: C.red }, B, 219.5);
-    if (B >= 222) {
-      revealUp('일부의 불안으로', CX, 790, { size: 56, w: 900 }, B, 222, 0.5, 0.02);
-      const o = { size: 72, f: 'disp', colorFn: hl('AI 산업 전체를 판단해선 안 된다', '안 된다', C.yellow) };
-      slam('AI 산업 전체를 판단해선 안 된다', CX, 890, o, B, 223, 0.35, 0.03, 1.8);
-    }
-  }, { dy: 0, din: 0.3, dout: 0.3 });
-  // rates peaked, it's psychology (B228–240)
-  group(B, 228, 239.7, () => {
-    const x = 160, y = 230, w = 760, h = 420;
-    panel(x, y, w, h, { r: 30 });
-    text('금리', x + 40, y + 56, { size: 44, f: 'disp', align: 'left' });
-    tag('개념도', x + w - 30, y + 56);
-    const pts = [];
-    for (let k = 0; k <= 80; k++) { const u = k / 80; pts.push([x + 50 + u * (w - 100), y + h - 60 - (Math.sin(Math.min(u * 1.25, 1) * Math.PI * 0.95) * 230 + vnoise(k * 0.6, 7) * 10) + (u > 0.8 ? (u - 0.8) * 300 : 0)]); }
-    const dp = Ease.inOutSine(pr(B, 228.5, 231));
-    const sh = pts.slice(0, Math.max(2, Math.floor(pts.length * dp)));
-    glowPath(sh, C.gold, 7, 22);
-    const pk = pts.reduce((a, b) => (b[1] < a[1] ? b : a));
-    if (dp > 0.6) { circle(pk[0], pk[1], 12 * popE(B, 230, 0.4), C.gold); text('정점', pk[0], pk[1] - 36, { size: 28, w: 900, color: C.gold, alpha: pr(B, 230, 230.4) }); }
-    const e = sh[sh.length - 1];
-    if (dp >= 1) arrow(e[0] - 40, e[1] - 40, e[0] + 10, e[1] + 10, C.mint, 7, 22, pr(B, 231, 231.5));
-    revealUp('금리도 정점을 지나', 1000, 330, { size: 60, w: 900, align: 'left' }, B, 229, 0.6, 0.02);
-    revealUp('꺾이기 시작했다', 1000, 420, { size: 60, w: 900, align: 'left', color: C.mint }, B, 230, 0.6, 0.02);
-    if (B >= 232) {
-      text('이번 급락은', CX, 780, { size: 48, w: 800, color: C.inkD, alpha: pr(B, 232, 232.5) });
-      const o = { size: 120, f: 'disp', colorFn: hl('펀더멘탈보다 심리', '심리', C.pink), glow: C.pink, blur: 18 };
-      slam('펀더멘탈보다 심리', CX, 910, o, B, 233, 0.35, 0.05, 2);
-    }
-  }, { dy: 50, dout: 0.25 });
+    popAt(B, CW(31, '살펴') - 0.6, CX, 480, () => plusSign(0, 0, 70, C.yellow));
+  }, { dy: 60, dout: 0.3 });
 }
 
 /* ============================================================
-   OUTRO (B240–274): 쫄지마세요 + 숫자 + GRIT
+   OUTRO (147.0–165.4 s) + ENDING (165.4–182 s)
    ============================================================ */
 function sOutro(B, t, F) {
-  const fade = Ease.inOutSine(pr(B, 270, 273.5));
-  const sb = Ease.outExpo(pr(B, 240, 241.2));
-  g.save(); g.globalAlpha *= 0.13 * (1 - fade) * (1 + F.kick * 0.5);
-  for (let k = 0; k < 28; k++) { const a = -t * 0.07 + (k / 28) * TAU; g.fillStyle = [C.pink, C.yellow, C.cyan, C.ewy][k % 4]; g.beginPath(); g.moveTo(CX, 330); g.arc(CX, 330, 1700 * sb, a, a + TAU / 56); g.closePath(); g.fill(); }
-  g.restore();
-  g.save(); g.globalAlpha *= 1 - fade * 0.85;
-  tape(1000, t, -200, pr(B, 242, 244) * (1 - pr(B, 260.5, 261.5)) * 0.9, 56);
-  const up = Ease.inOutCubic(pr(B, 243, 244));
-  logo('쫄지마세요', CX, lerp(470, 280, up), lerp(320, 200, up), B, 240);
-  ring(B, 240, CX, 470, { col: C.yellow, r: 1100, lw: 28, alpha: 0.6 });
-  confetti(B, 240, CX, 470, { n: 90, seed: 41, v1: 2100 });
-  if (B >= 244) {
-    rise('시장은 언제든 흔들릴 수 있다. 그럴 때 기댈 곳은', CX, 450, { size: 40, w: 800, color: C.inkD }, B, 244, 0.6, 0.012);
-    const p1 = popE(B, 248, 0.5, 2), p2 = popE(B, 249, 0.5, 2), pp = popE(B, 248.6, 0.4, 3);
-    const y = 610;
-    if (p1 > 0) {
-      g.save(); g.translate(CX - 400, y); g.scale(p1, p1);
-      g.save(); g.shadowColor = C.cyan; g.shadowBlur = 30; rr(-300, -95, 600, 190, 40); g.fillStyle = C.panel2; g.fill(); g.restore();
-      g.lineWidth = 4; g.strokeStyle = C.cyan; rr(-300, -95, 600, 190, 40); g.stroke();
-      text('숫자에 대한 믿음', 0, -18, { size: 58, f: 'disp', color: C.white });
-      text('= 펀더멘탈', 0, 48, { size: 32, w: 800, color: C.cyan });
+  // L32: 달러 기준 두 시장, 숫자는 말해
+  group(B, LB(32), LB(33) + 0.3, () => {
+    [['EWY', '한국', '−21%', C.ewy, 560, LB(32) + 0.2], ['EWT', '대만', '−10%', C.ewt, 1360, CW(32, '두 시장')]].forEach(([tk, ct, v, col, x, b0]) => {
+      popAt(B, b0, x, 470, () => {
+        neonBox(-320, -230, 640, 460, col, 36);
+        pill(ct, -280, -170, { size: 32, w: 900, fill: col, color: '#0A0A0A', align: 'left' });
+        text('USD', 280, -170, { size: 30, f: 'num', color: C.inkD, align: 'right', ls: 2 });
+        chars(tk, 0, -30, { size: 150, f: 'num', color: C.white, glow: col, blur: 30, ls: 8 });
+        if (B >= CW(32, '숫자는')) bigNum(v, 0, 140, 110, col);
+      }, 0.5, 1.8);
+    });
+  }, { dy: 60, dout: 0.3 });
+  // L33: 메모리의 파도는 더 높을 수 있다고
+  group(B, LB(33), LB(34) + 0.3, () => {
+    const grow = Ease.inOutSine(pr(B, CW(33, '파도'), CW(33, '파도') + 4));
+    glowPath(wavePts(160, 1760, 400, 60 + 140 * grow, 1.8, t * 2.4, 1), C.hynix, 12, 34);
+    glowPath(wavePts(160, 1760, 690, 40, 1.8, t * 1.4 + 1, 1), C.cyan, 8, 22);
+    text('메모리', 180, 210, { size: 54, f: 'disp', color: C.hynix, align: 'left' });
+    text('파운드리', 180, 600, { size: 44, f: 'disp', color: C.cyan, align: 'left' });
+    popAt(B, CW(33, '더 높을'), 1560, 210, () => pill('더 높을 수 있다', 0, 0, { size: 34, w: 900, fill: C.hynix, color: '#120400', align: 'center' }));
+  }, { dy: 0, dout: 0.3 });
+  // L34: 가설을 남기고 다음 장을 기다려 — a note, and a page that turns
+  group(B, LB(34), LB(35) + 0.3, () => {
+    popAt(B, CW(34, '가설'), 560, 470, () => {
+      g.rotate(-0.05);
+      g.fillStyle = '#FFE98A'; rr(-260, -230, 520, 460, 12); g.fill();
+      g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(-260, -230, 520, 50);
+      text('가설', 0, -110, { size: 90, f: 'disp', color: '#3B2B00' });
+      text('메모리는', 0, 0, { size: 38, w: 900, color: '#3B2B00' });
+      text('시클리컬 원자재처럼', 0, 56, { size: 38, w: 900, color: '#3B2B00' });
+      text('더 크게 흔들린다?', 0, 112, { size: 38, w: 900, color: '#3B2B00' });
+    }, 0.5, 1.6);
+    const fp = Ease.inOutCubic(pr(B, CW(34, '다음 장'), CW(34, '다음 장') + 1.2));
+    g.save(); g.translate(1360, 470);
+    neonBox(-260, -230, 520, 460, C.gold, 24);
+    text('NEXT', 0, -20, { size: 120, f: 'num', color: C.gold, ls: 10 });
+    text('다음 장', 0, 90, { size: 40, f: 'disp' });
+    if (fp < 1) {
+      // the cover page folds toward its left edge
+      g.save(); g.translate(-260, 0); g.scale(1 - fp, 1); g.translate(260, 0);
+      g.fillStyle = C.panel2; rr(-260, -230, 520, 460, 24); g.fill();
+      g.lineWidth = 3; g.strokeStyle = 'rgba(244,246,255,0.15)'; rr(-260, -230, 520, 460, 24); g.stroke();
+      text('10월', 0, 10, { size: 140, f: 'disp', color: C.inkS });
       g.restore();
     }
-    if (pp > 0) { g.save(); g.translate(CX, y); g.scale(pp, pp); g.rotate((1 - clamp(pp)) * 1.5); plusSign(0, 0, 70, C.yellow); g.restore(); }
-    if (p2 > 0) {
-      g.save(); g.translate(CX + 400, y); g.scale(p2, p2);
-      g.save(); g.shadowColor = C.gold; g.shadowBlur = 40; rr(-300, -95, 600, 190, 40); g.fillStyle = C.panel2; g.fill(); g.restore();
-      g.lineWidth = 4; g.strokeStyle = C.gold; rr(-300, -95, 600, 190, 40); g.stroke();
-      chars('GRIT', 0, -12, { size: 110, f: 'num', grad: [C.white, C.gold], glow: C.gold, blur: 30, ls: 8 });
-      text('남들이 불안할 때 버티는 배짱', 0, 62, { size: 28, w: 800, color: C.gold });
-      g.restore();
-    }
-  }
-  if (B >= 252) {
-    revealUp('이 두 가지로 차분하게 대응하는 것,', CX, 800, { size: 46, w: 800 }, B, 252, 0.6, 0.012);
-    const o = { size: 50, w: 900, colorFn: hl('그게 이번 변동성을 지나는 가장 현명한 길', '가장 현명한 길', C.yellow) };
-    revealUp('그게 이번 변동성을 지나는 가장 현명한 길', CX, 870, o, B, 253.5, 0.6, 0.012);
-  }
-  g.restore();
-  const da = pr(B, 262, 263);
-  if (da > 0) {
-    g.save(); g.globalAlpha *= 1 - fade * 0.5;
-    text('본 영상은 정보 제공용 콘텐츠이며 특정 자산의 매수·매도를 권유하지 않습니다. 차트는 첨부 자료를 재현한 것으로 실제와 차이가 있을 수 있습니다.', CX, 975, { size: 21, w: 600, color: C.inkD, alpha: da });
-    text('투자 판단과 그에 따른 책임은 투자자 본인에게 있습니다.', CX, 1010, { size: 21, w: 600, color: C.inkD, alpha: da });
     g.restore();
+  }, { dy: 60, dout: 0.3 });
+  // L35: 서로 다른 반도체의 계절을 — the two seasons, side by side
+  group(B, LB(35), SB(165.6), () => {
+    const sp = Ease.outExpo(pr(B, LB(35), LB(35) + 1.2));
+    g.save(); g.globalAlpha *= 0.85;
+    g.fillStyle = C.cyan + '22'; g.fillRect(0, 0, CX * sp, H);
+    g.fillStyle = C.hynix + '22'; g.fillRect(W - CX * sp, 0, CX * sp, H);
+    g.restore();
+    popAt(B, LB(35), 560, 480, () => cycleDial(0, 0, 200, C.cyan, t * 0.9, '파운드리', '대만 · TSMC'), 0.5, 2);
+    popAt(B, CW(35, '다른'), 1360, 480, () => cycleDial(0, 0, 200, C.hynix, t * 3.2, '메모리', '한국 · 삼전·닉스'), 0.5, 2);
+    ring(B, CW(35, '계절'), 560, 480, { col: C.cyan, r: 420, lw: 12, alpha: 0.6 });
+    ring(B, CW(35, '계절'), 1360, 480, { col: C.hynix, r: 420, lw: 12, alpha: 0.6 });
+  }, { dy: 40, dout: 0.3 });
+}
+function sEnding(B, t, F) {
+  const b0 = SB(165.4), fade = Ease.inOutSine(pr(t, 179, 182));
+  const sb = Ease.outExpo(pr(B, b0, b0 + 1.2));
+  g.save(); g.globalAlpha *= 0.06 * (1 - fade) * (1 + F.kick * 0.5);
+  for (let k = 0; k < 28; k++) { const a = -t * 0.07 + (k / 28) * TAU; g.fillStyle = [C.pink, C.yellow, C.cyan, C.ewy][k % 4]; g.beginPath(); g.moveTo(CX, 380); g.arc(CX, 380, 1700 * sb, a, a + TAU / 56); g.closePath(); g.fill(); }
+  g.restore();
+  g.save(); g.globalAlpha *= 1 - fade * 0.9;
+  logo('반도체의 계절', CX, 380, 230, B, b0);
+  ring(B, b0, CX, 380, { col: C.yellow, r: 1100, lw: 28, alpha: 0.6 });
+  confetti(B, b0, CX, 380, { n: 90, seed: 41, v1: 2100 });
+  rise('달러 기준 · 한국 EWY −21% vs 대만 EWT −10%', CX, 560, { size: 38, w: 800, color: C.inkD }, B, b0 + 2, 0.6, 0.01);
+  popAt(B, SB(169.5), CX, 690, () => {
+    g.rotate(-0.04);
+    neonBox(-260, -60, 520, 120, C.pink, 60, C.panel2);
+    chars('쫄지마세요', 0, 6, { size: 72, f: 'disp', grad: [C.white, C.pink], glow: C.pink, blur: 24 });
+  }, 0.5, 2);
+  tape(850, t, -160, pr(t, 166, 167) * 0.9, 52);
+  const da = pr(t, 172, 173);
+  if (da > 0) {
+    text('본 영상은 정보 제공용 콘텐츠이며 특정 자산의 매수·매도를 권유하지 않습니다. 차트는 첨부 자료를 재현했거나 흐름을 보여주는 개념도입니다.', CX, 962, { size: 21, w: 600, color: C.inkD, alpha: da });
+    text('투자 판단과 그에 따른 책임은 투자자 본인에게 있습니다.  ·  음악: 반도체의 계절 (iontiger)', CX, 998, { size: 21, w: 600, color: C.inkD, alpha: da });
+  }
+  g.restore();
+}
+
+/* ============================================================
+   LYRICS — karaoke line at the bottom, lit per character
+   ============================================================ */
+function lyricLine(L, t, y, aIn, aOut) {
+  const col = sectAt(L.t0 + 0.1).col;
+  const size = Math.min(72, fitSize(L.text, 1600, 72, 400, 'disp')), n = L.text.length;
+  const o = { size, f: 'disp', ls: 1 };
+  g.save(); g.globalAlpha *= 1 - aOut; g.translate(0, -aOut * 36);
+  // pass 1: the whole line, dim, rising in
+  chars(L.text, CX, y, Object.assign({ color: 'rgba(244,246,255,0.34)', stroke: 'rgba(0,0,0,0.55)', sw: 2 }, o), (i) => {
+    const p = pr(aIn, (i / n) * 0.5, (i / n) * 0.5 + 0.5);
+    return { y: (1 - Ease.outCubic(p)) * 30, a: p };
+  });
+  // pass 2: sung characters light up with a bounce
+  const gr = g.createLinearGradient(0, -size * 0.42, 0, size * 0.42);
+  gr.addColorStop(0, C.white); gr.addColorStop(1, col);
+  chars(L.text, CX, y, Object.assign({ glow: col, blur: 20 }, o), (i) => {
+    const ct = L.ct[i];
+    if (t < ct) return false;
+    const bump = Math.sin(pr(t, ct, ct + 0.22) * Math.PI);
+    return { c: gr, s: 1 + bump * 0.22, y: -bump * 12 };
+  });
+  g.restore();
+}
+// when each line fades in and out, so neighbouring lines never share the screen
+const LYR_IN = [], LYR_OUT = [];
+LYRICS.forEach((L, i) => {
+  const nx = LYRICS[i + 1];
+  LYR_OUT[i] = nx ? Math.min(L.t1, Math.max(nx.t0 - 0.42, L.end + 0.12)) : L.t1;
+  LYR_IN[i] = Math.max(L.t0 - 0.3, i ? LYR_OUT[i - 1] + 0.2 : -1);
+});
+function drawLyrics(t) {
+  if (t >= 165.9) return;
+  const bg = g.createLinearGradient(0, 840, 0, H);
+  bg.addColorStop(0, 'rgba(6,8,15,0)'); bg.addColorStop(0.45, 'rgba(6,8,15,0.72)'); bg.addColorStop(1, 'rgba(6,8,15,0.9)');
+  g.fillStyle = bg; g.fillRect(0, 840, W, H - 840);
+  let cur = -1;
+  for (let i = 0; i < LYRICS.length; i++) {
+    const a = LYR_IN[i], z = LYR_OUT[i];
+    if (t < a || t >= z + 0.2) continue;
+    lyricLine(LYRICS[i], t, 948, Ease.outCubic(pr(t, a, Math.max(a + 0.2, LYRICS[i].t0))), Ease.inCubic(pr(t, z, z + 0.2)));
+    if (t < z) cur = i;
+  }
+  // the next line, small, when it follows closely
+  const L = LYRICS[cur], nx = LYRICS[cur + 1];
+  if (L && nx && nx.s === L.s && nx.t0 - t < 4) text(nx.text, CX, 1030, { size: 28, w: 700, color: C.inkS, alpha: 0.8 * pr(t, L.t0, L.t0 + 0.6) * (1 - pr(t, LYR_OUT[cur] - 0.3, LYR_OUT[cur])) });
+}
+
+/* ---------------- header, HUD, progress ---------------- */
+function drawHeader(t) {
+  const s = sectAt(t);
+  if (!s.name || t < 2.8) return;
+  const t0 = Math.max(2.8, s.t), a = Ease.outCubic(pr(t, t0, t0 + 0.5));
+  g.save(); g.globalAlpha = a; g.translate(-(1 - a) * 60, 0);
+  g.save(); g.shadowColor = s.col; g.shadowBlur = 20; const w = pill(s.name, 84, 92, { size: 26, f: 'num', fill: s.col, color: '#0A0A0A', align: 'left', ls: 3 }); g.restore();
+  text(s.sub, 84 + w + 20, 92, { size: 30, f: 'disp', align: 'left' });
+  g.restore();
+}
+function drawHUD(t) {
+  if (t < 2.8 || t >= 165.4) return;
+  g.save(); g.globalAlpha = win(t, 2.8, 165.4, 0.6, 0.6);
+  text('반도체의 계절', W - 84, 84, { size: 32, f: 'disp', align: 'right', color: C.pink });
+  text('EWY vs EWT · 2026.10', W - 84, 118, { size: 18, w: 700, color: C.inkD, align: 'right', ls: 1 });
+  const k = env(KICKS, t, 10);
+  [C.ewy, C.ewt, C.pink, C.yellow].forEach((c, i) => circle(W - 90 - i * 16, 146, 4.5 + (i === 0 ? k * 2.5 : 0), c));
+  g.restore();
+}
+function drawProgress(t) {
+  const y = H - 4;
+  g.fillStyle = 'rgba(244,246,255,0.08)'; g.fillRect(0, y, W, 4);
+  for (let i = 0; i < SECTS.length; i++) {
+    const a = SECTS[i].t, z = i + 1 < SECTS.length ? SECTS[i + 1].t : DUR, x0 = (a / DUR) * W, x1 = (Math.min(t, z) / DUR) * W;
+    if (x1 > x0) { g.fillStyle = SECTS[i].col; g.fillRect(x0, y, x1 - x0, 4); }
   }
 }
 
@@ -824,15 +850,15 @@ function sOutro(B, t, F) {
    COMPOSITION
    ============================================================ */
 const SCENES = [
-  { b0: 0, b1: 16, f: sIntro },
-  { b0: 16, b1: 32, f: sTitle },
-  { b0: 35.5, b1: 64.2, f: sSame },
-  { b0: 67.5, b1: 100.2, f: sDrop },
-  { b0: 103.5, b1: 140.2, f: sWeight },
-  { b0: 143.5, b1: 168.2, f: sMemory },
-  { b0: 171.5, b1: 200.2, f: sUS },
-  { b0: 203.5, b1: 240.2, f: sClose },
-  { b0: 240, b1: TOTAL_BEATS + 1, f: sOutro },
+  { a: 0, z: 18.0, f: sVerse1 },
+  { a: 18.3, z: 29.2, f: sPre1 },
+  { a: 28.9, z: 56.8, f: (B, t, F) => sChorus(B, t, F, false) },
+  { a: 57.4, z: 78.0, f: sVerse2 },
+  { a: 77.8, z: 97.4, f: sPre2 },
+  { a: 97.2, z: 125.0, f: (B, t, F) => sChorus(B - C2, t, F, true) },
+  { a: 124.7, z: 147.1, f: sBridge },
+  { a: 146.9, z: 165.7, f: sOutro },
+  { a: 165.3, z: DUR + 1, f: sEnding },
 ];
 function drawFrame(t) {
   const B = t / SPB;
@@ -844,11 +870,11 @@ function drawFrame(t) {
   const cam = camera(B, t);
   g.save();
   g.translate(CX + cam.sx, CY + cam.sy); g.rotate(cam.r); g.scale(cam.z, cam.z); g.translate(-CX, -CY);
-  for (const s of SCENES) if (B >= s.b0 && B < s.b1) s.f(B, t, F);
-  for (let k = 0; k < CH.length; k++) chapterHeader(B, k);
+  for (const s of SCENES) if (t >= s.a && t < s.z) s.f(B, t, F);
   g.restore();
-  drawTracker(B);
-  drawHUD(B);
-  for (let k = 0; k < CH.length; k++) chapterCard(B, k);
+  drawHeader(t);
+  drawHUD(t);
+  drawLyrics(t);
+  drawProgress(t);
   return postParams(B, t);
 }

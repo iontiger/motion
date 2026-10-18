@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>쫄지마세요 · 한국 EWY vs 대만 EWT</title>
-<meta name="description" content="달러 기준 ETF로 비교한 한국(EWY) −21% vs 대만(EWT) −10%. 지수 비중, 메모리와 파운드리, 네오클라우드와 매그니피센트7까지 128 BPM 모션그래픽.">
+<title>반도체의 계절 · 한국 EWY vs 대만 EWT</title>
+<meta name="description" content="노래 &lsquo;반도체의 계절&rsquo;에 가사를 맞춘 모션그래픽. 달러 기준 한국 EWY −21% vs 대만 EWT −10%, 지수 비중과 메모리 사이클.">
 <meta property="og:type" content="website">
-<meta property="og:title" content="쫄지마세요 · 한국 EWY vs 대만 EWT">
-<meta property="og:description" content="10월 고점 대비 한국 −21%, 대만 −10%. 차이는 지수 안의 무게에서 나왔다. 기댈 곳은 숫자와 배짱(GRIT).">
+<meta property="og:title" content="반도체의 계절 · 한국 EWY vs 대만 EWT">
+<meta property="og:description" content="10월 고점 대비 한국 −21%, 대만 −10%. 비중이 만든 기울기, 사이클이 만든 파장. 쫄지마세요.">
 <meta property="og:image" content="https://iontiger.github.io/motion/4/poster.jpg">
 <meta property="og:url" content="https://iontiger.github.io/motion/4/">
 <meta name="twitter:card" content="summary_large_image">
@@ -122,17 +122,17 @@
 </head>
 <body>
   <header>
-    <h1><b>쫄지마세요</b> · 한국 EWY vs 대만 EWT</h1>
-    <span>128 BPM · 2분 8초 · 2026.10</span>
+    <h1><b>반도체의 계절</b> · 한국 EWY vs 대만 EWT</h1>
+    <span>103 BPM · 3분 2초 · 2026.10</span>
   </header>
 
   <div id="stage">
-    <canvas id="out" width="1920" height="1080" aria-label="쫄지마세요 모션그래픽: 달러 기준 EWY와 EWT 비교, 10월 고점 대비 낙폭, 지수 비중, 메모리와 파운드리, 네오클라우드와 매그니피센트7, 마무리"></canvas>
+    <canvas id="out" width="1920" height="1080" aria-label="반도체의 계절 뮤직 모션그래픽: 가사에 맞춘 달러 기준 EWY와 EWT 비교, 10월 고점 대비 낙폭, 지수 비중, 메모리와 파운드리의 사이클"></canvas>
     <div id="overlay">
       <button id="bigPlay" aria-label="재생">
         <svg viewBox="0 0 24 24"><path d="M5 3.5v17a1 1 0 0 0 1.5.86l14-8.5a1 1 0 0 0 0-1.72l-14-8.5A1 1 0 0 0 5 3.5z"/></svg>
       </button>
-      <div class="ov-title">쫄지마세요. 숫자는 견조합니다.</div>
+      <div class="ov-title">반도체의 계절 · 가사와 함께 보기</div>
       <div class="ov-sub">사운드를 켜고 보세요 · SPACE 재생/정지 · ←/→ 한 마디 이동 · F 전체화면</div>
       <div id="status">불러오는 중…</div>
     </div>
@@ -159,14 +159,14 @@
 
   <footer>
     본 영상은 정보 제공용 콘텐츠이며 특정 자산의 매수·매도를 권유하지 않습니다. 투자 판단과 책임은 투자자 본인에게 있습니다.
-    수치는 원문 기준입니다. EWY·EWT 6개월 차트와 NCLD·MAGS 캔들은 첨부 자료를 재현한 그림이고, &lsquo;개념도&rsquo; 표시가 붙은 차트는 흐름을 보여주기 위한 그림입니다.<br>
-    음악은 Web Audio로 실시간 합성됩니다. 폰트: Pretendard, Black Han Sans, Anton (모두 SIL OFL).
+    수치는 원문 기준입니다. EWY·EWT 6개월 차트는 첨부 자료를 재현한 그림이고, &lsquo;개념도&rsquo; 표시가 붙은 차트는 흐름을 보여주기 위한 그림입니다.<br>
+    음악: &lsquo;반도체의 계절&rsquo; (iontiger, Suno로 제작). 가사 자막은 보컬 트랙을 분리해 음절 단위로 맞췄습니다. 폰트: Pretendard, Black Han Sans, Anton (모두 SIL OFL).
   </footer>
 
   <div id="exportModal" class="hidden">
     <div class="ex-card">
       <h2>MP4로 저장 중</h2>
-      <p>1920×1080 · 60fps · H.264 + AAC. 영상과 음악을 프레임 단위로 다시 렌더링합니다. 2분 8초 분량이라 몇 분 걸릴 수 있어요.</p>
+      <p>1920×1080 · 60fps · H.264 + AAC. 영상을 프레임 단위로 다시 렌더링하고 노래를 함께 담습니다. 3분 2초 분량이라 몇 분 걸릴 수 있어요.</p>
       <div class="ex-track"><div id="exportBar"></div></div>
       <div id="exportLabel">준비 중…</div>
     </div>
@@ -174,7 +174,7 @@
 
   <script src="vendor/mp4-muxer.js"></script>
   <script src="js/core.js"></script>
-  <script src="js/music.js"></script>
+  <script src="js/lyrics.js"></script>
   <script src="js/scenes.js"></script>
   <script src="js/app.js"></script>
 </body>

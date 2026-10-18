@@ -7,7 +7,7 @@ import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const outPath = resolve(process.argv[2] || join(root, 'dont-panic-ewy-ewt.mp4'));
+const outPath = resolve(process.argv[2] || join(root, 'semiconductor-season.mp4'));
 const fps = Number(process.argv[3] || 60);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

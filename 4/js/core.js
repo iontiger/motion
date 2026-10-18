@@ -3,9 +3,9 @@
    CORE — timing, neon-on-black palette, math, text & shape primitives
    ============================================================ */
 const W = 1920, H = 1080, CX = W / 2, CY = H / 2;
-const BPM = 128, SPB = 60 / BPM;             // 0.469 s per beat, 1.875 s per bar
-const TOTAL_BEATS = 274;                     // 68 bars + 2 beats of ring-out
-const DUR = TOTAL_BEATS * SPB;               // 128.4 s
+const BPM = 103.36, SPB = 60 / BPM;           // song tempo; animation timings are in beats
+const DUR = 182.12;                          // length of audio/song.mp3 as decoded
+const TOTAL_BEATS = DUR / SPB;
 const TAU = Math.PI * 2;
 
 const C = {
@@ -20,15 +20,27 @@ const C = {
 };
 const SH = 'rgba(0,0,0,0.45)';
 
-/* chapters (shared by scenes + UI) */
-const CH = [
-  { n: '01', b: 32, e: 64, name: '같은 잣대로', sub: '미국에 상장된 달러 기준 ETF끼리 비교', col: C.cyan },
-  { n: '02', b: 64, e: 100, name: '10월 고점 대비', sub: '한국은 −21%, 대만은 −10%', col: C.ewy },
-  { n: '03', b: 100, e: 140, name: '지수 안의 무게', sub: '누가 지수를 끌어내렸나', col: C.pink },
-  { n: '04', b: 140, e: 168, name: '메모리 vs 파운드리', sub: '같은 반도체, 다른 변동성', col: C.violet },
-  { n: '05', b: 168, e: 200, name: '미국도 같은 그림', sub: '네오클라우드 −32%, 매그니피센트7 −4%', col: C.ewt },
-  { n: '06', b: 200, e: 240, name: '마무리', sub: '흔들릴 때 기댈 곳은 숫자', col: C.gold, ink: true },
-];
+/* ---------------- beat sync helpers ---------------- */
+function lastBefore(arr, t) {
+  let lo = 0, hi = arr.length - 1, ans = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (arr[m] <= t) { ans = m; lo = m + 1; } else hi = m - 1; }
+  return ans;
+}
+function env(arr, t, k = 10) { const i = lastBefore(arr, t); if (i < 0) return 0; return Math.exp(-(t - arr[i]) * k); }
+// per-frame RMS energy (0..1) for visuals
+function analyzeEnergy(buf, fps = 60) {
+  const sr = buf.sampleRate, hop = Math.floor(sr / fps);
+  const L = buf.getChannelData(0), Rr = buf.getChannelData(buf.numberOfChannels > 1 ? 1 : 0);
+  const n = Math.ceil(L.length / hop), out = new Float32Array(n);
+  let mx = 0;
+  for (let f = 0; f < n; f++) {
+    let s = 0; const a = f * hop, b = Math.min(L.length, a + hop);
+    for (let i = a; i < b; i++) { const m = (L[i] + Rr[i]) * 0.5; s += m * m; }
+    out[f] = Math.sqrt(s / Math.max(1, b - a)); if (out[f] > mx) mx = out[f];
+  }
+  for (let f = 0; f < n; f++) out[f] /= mx || 1;
+  return out;
+}
 
 /* ---------------- math ---------------- */
 const clamp = (x, a = 0, b = 1) => (x < a ? a : x > b ? b : x);
