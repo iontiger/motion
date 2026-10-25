@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>실적의 계절 · 키네틱 가사</title>
+<meta name="description" content="노래 &lsquo;실적의 계절&rsquo;의 가사가 비트에 맞춰 화면 곳곳에서 튀어나오는 키네틱 타이포그래피. 10월 마지막 주, 하이닉스·FOMC·삼성·빅테크 실적.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="실적의 계절 · 키네틱 가사">
+<meta property="og:description" content="숫자는 말보다 먼저 움직여. 밑줄, 형광펜, 빨랫줄, 줌아웃으로 춤추는 가사.">
+<meta property="og:image" content="https://iontiger.github.io/motion/5/poster.jpg">
+<meta property="og:url" content="https://iontiger.github.io/motion/5/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#F2ECE0">
+<style>
+  @font-face { font-family: "PretendardV"; src: url(fonts/pretendard-sub.woff2) format("woff2"); font-weight: 45 920; font-display: swap; }
+  @font-face { font-family: "BlackHanSans"; src: url(fonts/blackhansans-sub.woff2) format("woff2"); font-display: swap; }
+  :root {
+    --bg: #F2ECE0;
+    --panel: #FFFDF8;
+    --line: rgba(21, 18, 15, 0.14);
+    --ink: #15120F;
+    --dim: rgba(21, 18, 15, 0.6);
+    --accent: #FF3B2F;
+    --mint: #FFE14D;
+    --font: "PretendardV", "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 12% 0%, #FFE9A8 0, transparent 45%), radial-gradient(ellipse at 90% 100%, #FFD3CC 0, transparent 45%), var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 16px; min-height: 100vh;
+  }
+  header {
+    width: min(100%, calc((100vh - 170px) * 16 / 9), 1600px);
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font: 400 22px "BlackHanSans", var(--font); letter-spacing: -0.01em; }
+  header h1 b { color: var(--accent); font-weight: 400; }
+  header span { font-size: 12px; font-weight: 600; color: var(--dim); }
+  #stage {
+    position: relative;
+    width: min(100%, calc((100vh - 170px) * 16 / 9), 1600px);
+    aspect-ratio: 16 / 9;
+    border-radius: 22px; overflow: hidden;
+    background: var(--panel);
+    box-shadow: 0 24px 70px rgba(21, 18, 15, .22), 0 0 0 3px #15120F;
+  }
+  #stage:fullscreen { width: 100vw; height: 100vh; border-radius: 0; aspect-ratio: auto; box-shadow: none; background: #000; }
+  #out { display: block; width: 100%; height: 100%; object-fit: contain; cursor: pointer; }
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    background: radial-gradient(ellipse at center, rgba(242, 236, 224, .1), rgba(21, 18, 15, .45));
+    backdrop-filter: blur(2px);
+    transition: opacity .35s ease;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  #bigPlay {
+    width: clamp(64px, 9vw, 104px); aspect-ratio: 1; border-radius: 50%;
+    border: 4px solid #15120F; background: var(--accent); cursor: pointer;
+    display: grid; place-items: center;
+    animation: pulse 1.8s infinite;
+    opacity: .4; pointer-events: none; transition: opacity .3s, transform .2s;
+  }
+  body.ready #bigPlay { opacity: 1; pointer-events: auto; }
+  #bigPlay:hover { transform: scale(1.06); }
+  #bigPlay svg { width: 38%; height: 38%; margin-left: 8%; fill: #fff; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 59, 47, .55); } 70% { box-shadow: 0 0 0 26px rgba(255, 59, 47, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 59, 47, 0); } }
+  .ov-title { font: 400 clamp(16px, 2.3vw, 30px) "BlackHanSans", var(--font); text-align: center; padding: 8px 22px; background: #FFE14D; color: #15120F; border-radius: 999px; box-shadow: 0 0 0 3px #15120F; }
+  .ov-sub { font-size: clamp(10px, 1.1vw, 13px); font-weight: 700; color: #FFFDF8; text-align: center; }
+  #status { font-size: 12px; font-weight: 700; color: var(--accent); min-height: 1em; }
+  .controls {
+    width: min(100%, calc((100vh - 170px) * 16 / 9), 1600px);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .controls button {
+    flex: none; height: 40px; min-width: 40px; padding: 0 13px;
+    border-radius: 999px; border: 0; background: var(--panel); color: var(--ink);
+    box-shadow: 0 0 0 1px var(--line);
+    font: 700 13px var(--font); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .controls button:hover { transform: translateY(-1px); }
+  .controls button svg { width: 16px; height: 16px; fill: currentColor; }
+  #btnPlay[data-state="play"] .i-pause, #btnPlay[data-state="pause"] .i-play { display: none; }
+  #btnExport { background: var(--accent); color: #fff; }
+  #time { font-size: 12px; font-weight: 700; color: var(--dim); white-space: nowrap; min-width: 92px; text-align: center; font-variant-numeric: tabular-nums; }
+  .track { position: relative; flex: 1; min-width: 80px; height: 40px; display: flex; align-items: center; }
+  #scrub { -webkit-appearance: none; appearance: none; width: 100%; height: 8px; border-radius: 4px; margin: 0;
+    background: linear-gradient(90deg, var(--accent) var(--p, 0%), rgba(21, 18, 15, .14) var(--p, 0%)); cursor: pointer; }
+  #scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #FFFDF8; border: 4px solid var(--accent); }
+  #scrub::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #FFFDF8; border: 4px solid var(--accent); }
+  #marks { position: absolute; left: 0; right: 0; top: 0; height: 12px; pointer-events: none; }
+  .mark { position: absolute; top: -6px; transform: translateX(-50%); pointer-events: auto; white-space: nowrap;
+    font: 700 10px var(--font) !important; color: var(--dim) !important; background: none !important; border: 0 !important; box-shadow: none !important;
+    height: 14px !important; min-width: 0 !important; padding: 0 2px !important; }
+  .mark:first-child { transform: none; }
+  .mark:hover { color: var(--accent) !important; transform: translateX(-50%); }
+  .mark:first-child:hover { transform: none; }
+  #exportModal { position: fixed; inset: 0; background: rgba(21, 18, 15, .7); display: grid; place-items: center; z-index: 10; }
+  #exportModal.hidden { display: none; }
+  .ex-card { width: min(420px, calc(100vw - 32px)); background: var(--panel); border-radius: 22px; padding: 22px; box-shadow: 0 20px 50px rgba(0, 0, 0, .35); }
+  .ex-card h2 { margin: 0 0 6px; font: 900 20px var(--font); letter-spacing: -0.02em; }
+  .ex-card p { margin: 0 0 16px; font-size: 13px; color: var(--dim); }
+  .ex-track { height: 8px; border-radius: 4px; background: rgba(21, 18, 15, .12); overflow: hidden; }
+  #exportBar { height: 100%; width: 0; background: linear-gradient(90deg, var(--mint), var(--accent)); }
+  #exportLabel { margin-top: 10px; font-size: 12px; font-weight: 700; color: var(--dim); }
+  footer { width: min(100%, calc((100vh - 170px) * 16 / 9), 1600px); font-size: 11px; color: var(--dim); line-height: 1.6; }
+  footer a { color: var(--ink); }
+  @media (max-width: 640px) {
+    #marks, .ov-sub { display: none; }
+    #overlay { gap: 10px; }
+    .ov-title { font-size: 15px; }
+    .controls { flex-wrap: wrap; }
+    .track { order: -1; flex-basis: 100%; }
+    .controls .lbl { display: none; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1><b>실적의 계절</b> · 키네틱 가사</h1>
+    <span>101 BPM · 2분 46초 · 2026.10.26 — 11.01</span>
+  </header>
+
+  <div id="stage">
+    <canvas id="out" width="1920" height="1080" aria-label="실적의 계절 키네틱 타이포그래피: 노래 가사가 비트에 맞춰 화면 위·가운데·아래에 밑줄, 형광펜, 크기 변화, 빨랫줄, 줌아웃 효과로 나타납니다"></canvas>
+    <div id="overlay">
+      <button id="bigPlay" aria-label="재생">
+        <svg viewBox="0 0 24 24"><path d="M5 3.5v17a1 1 0 0 0 1.5.86l14-8.5a1 1 0 0 0 0-1.72l-14-8.5A1 1 0 0 0 5 3.5z"/></svg>
+      </button>
+      <div class="ov-title">실적의 계절 · 키네틱 가사</div>
+      <div class="ov-sub">사운드를 켜고 보세요 · SPACE 재생/정지 · ←/→ 한 마디 이동 · F 전체화면</div>
+      <div id="status">불러오는 중…</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="btnPlay" data-state="play" aria-label="재생">
+      <svg class="i-play" viewBox="0 0 24 24"><path d="M6 4v16l14-8z"/></svg>
+      <svg class="i-pause" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+    </button>
+    <button id="btnRestart" aria-label="처음부터">
+      <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+    </button>
+    <div id="time">0:00 / 2:46</div>
+    <div class="track">
+      <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="재생 위치">
+      <div id="marks"></div>
+    </div>
+    <button id="btnFull" aria-label="전체화면">
+      <svg viewBox="0 0 24 24"><path d="M4 9V4h5v2H6v3zm10-5h6v5h-2V6h-4zM4 15h2v3h3v2H4zm14 3v-3h2v5h-6v-2z"/></svg>
+    </button>
+    <button id="btnExport"><svg viewBox="0 0 24 24"><path d="M12 3v11l4-4 1.4 1.4L12 17.8 6.6 11.4 8 10l4 4V3zM4 19h16v2H4z"/></svg><span class="lbl">MP4 저장</span></button>
+  </div>
+
+  <footer>
+    본 영상은 정보 제공용 콘텐츠이며 특정 자산의 매수·매도를 권유하지 않습니다. 투자 판단과 책임은 투자자 본인에게 있습니다.<br>
+    음악: &lsquo;실적의 계절&rsquo; (iontiger, Suno로 제작). 가사는 보컬 트랙을 분리해 음절 단위로 맞췄고, 줄마다 효과와 위치를 무작위로 골랐습니다(재생할 때마다 같은 결과). 폰트: Pretendard, Black Han Sans, 나눔명조, 나눔손글씨 펜, Anton (모두 SIL OFL).
+  </footer>
+
+  <div id="exportModal" class="hidden">
+    <div class="ex-card">
+      <h2>MP4로 저장 중</h2>
+      <p>1920×1080 · 60fps · H.264 + AAC. 영상을 프레임 단위로 다시 렌더링하고 노래를 함께 담습니다. 2분 46초 분량이라 몇 분 걸릴 수 있어요.</p>
+      <div class="ex-track"><div id="exportBar"></div></div>
+      <div id="exportLabel">준비 중…</div>
+    </div>
+  </div>
+
+  <script src="vendor/mp4-muxer.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/lyrics.js"></script>
+  <script src="js/scenes.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
