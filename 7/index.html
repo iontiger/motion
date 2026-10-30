@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>잘되는 치과는 무엇이 다를까 · 3D 디스코</title>
+<meta name="description" content="대한치과의료관리학회 2026년 11월 종합학술대회 홍보 노래 &lsquo;잘되는 치과는 무엇이 다를까&rsquo;의 가사가 3D 디스코 무대 위에 입체 글자로 한 음절씩 떨어지는 뮤직비디오. 2026.11.22(일) 서울성모병원 대강당.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="잘되는 치과는 무엇이 다를까 · 3D 디스코">
+<meta property="og:description" content="AI 이전부터 AI 이후까지, 서로 다른 성공 방식. 치아 미러볼 아래 빛나는 댄스 플로어에서 가사가 춤춥니다.">
+<meta property="og:image" content="https://iontiger.github.io/motion/7/poster.jpg">
+<meta property="og:url" content="https://iontiger.github.io/motion/7/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#12061F">
+<style>
+  @font-face { font-family: "PretendardV"; src: url(fonts/pretendard-sub.woff2) format("woff2"); font-weight: 45 920; font-display: swap; }
+  @font-face { font-family: "Monoton"; src: url(fonts/monoton-sub.woff2) format("woff2"); font-display: swap; }
+  :root {
+    --bg: #12061F;
+    --panel: #1F0E33;
+    --line: rgba(255, 236, 250, 0.16);
+    --ink: #FFF4FA;
+    --dim: rgba(255, 236, 250, 0.62);
+    --accent: #FF3D9A;
+    --mint: #3BE8FF;
+    --font: "PretendardV", "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 15% 0%, #4A1666 0, transparent 50%), radial-gradient(ellipse at 88% 100%, #0D3B5C 0, transparent 50%), var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 16px; min-height: 100vh;
+  }
+  header {
+    width: min(100%, calc((100vh - 170px) * 16 / 9), 1600px);
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font: 800 22px var(--font); letter-spacing: -0.02em; }
+  header h1 b { color: var(--accent); font-weight: 900; }
+  header h1 i { font: 400 20px "Monoton", var(--font); font-style: normal; color: var(--mint); letter-spacing: 0.04em; }
+  header span { font-size: 12px; font-weight: 600; color: var(--dim); }
+  #stage {
+    position: relative;
+    width: min(100%, calc((100vh - 170px) * 16 / 9), 1600px);
+    aspect-ratio: 16 / 9;
+    border-radius: 22px; overflow: hidden;
+    background: var(--panel);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, .5), 0 0 0 2px rgba(255, 61, 154, .55), 0 0 40px rgba(255, 61, 154, .25);
+  }
+  #stage:fullscreen { width: 100vw; height: 100vh; border-radius: 0; aspect-ratio: auto; box-shadow: none; background: #000; }
+  #out { display: block; width: 100%; height: 100%; object-fit: contain; cursor: pointer; }
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    background: radial-gradient(ellipse at center, rgba(18, 6, 31, .1), rgba(10, 3, 18, .55));
+    backdrop-filter: blur(2px);
+    transition: opacity .35s ease;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  #bigPlay {
+    width: clamp(64px, 9vw, 104px); aspect-ratio: 1; border-radius: 50%;
+    border: 0; background: var(--accent); cursor: pointer;
+    display: grid; place-items: center;
+    animation: pulse 1.8s infinite;
+    opacity: .4; pointer-events: none; transition: opacity .3s, transform .2s;
+  }
+  body.ready #bigPlay { opacity: 1; pointer-events: auto; }
+  #bigPlay:hover { transform: scale(1.06); }
+  #bigPlay svg { width: 38%; height: 38%; margin-left: 8%; fill: #fff; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 59, 47, .55); } 70% { box-shadow: 0 0 0 26px rgba(255, 59, 47, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 59, 47, 0); } }
+  .ov-title { font: 900 clamp(16px, 2.3vw, 30px) var(--font); letter-spacing: -0.02em; text-align: center; padding: 8px 22px; background: #FFF4FA; color: #1F0E33; border-radius: 999px; box-shadow: 0 0 30px rgba(255, 61, 154, .6); }
+  .ov-sub { font-size: clamp(10px, 1.1vw, 13px); font-weight: 700; color: #FFFDF8; text-align: center; }
+  #status { font-size: 12px; font-weight: 700; color: var(--accent); min-height: 1em; }
+  .controls {
+    width: min(100%, calc((100vh - 170px) * 16 / 9), 1600px);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .controls button {
+    flex: none; height: 40px; min-width: 40px; padding: 0 13px;
+    border-radius: 999px; border: 0; background: var(--panel); color: var(--ink);
+    box-shadow: 0 0 0 1px var(--line);
+    font: 700 13px var(--font); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .controls button:hover { transform: translateY(-1px); }
+  .controls button svg { width: 16px; height: 16px; fill: currentColor; }
+  #btnPlay[data-state="play"] .i-pause, #btnPlay[data-state="pause"] .i-play { display: none; }
+  #btnExport { background: var(--accent); color: #fff; }
+  #time { font-size: 12px; font-weight: 700; color: var(--dim); white-space: nowrap; min-width: 92px; text-align: center; font-variant-numeric: tabular-nums; }
+  .track { position: relative; flex: 1; min-width: 80px; height: 40px; display: flex; align-items: center; }
+  #scrub { -webkit-appearance: none; appearance: none; width: 100%; height: 8px; border-radius: 4px; margin: 0;
+    background: linear-gradient(90deg, var(--accent) var(--p, 0%), rgba(255, 236, 250, .16) var(--p, 0%)); cursor: pointer; }
+  #scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #FFF4FA; border: 4px solid var(--accent); }
+  #scrub::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #FFFDF8; border: 4px solid var(--accent); }
+  #marks { position: absolute; left: 0; right: 0; top: 0; height: 12px; pointer-events: none; }
+  .mark { position: absolute; top: -6px; transform: translateX(-50%); pointer-events: auto; white-space: nowrap;
+    font: 700 10px var(--font) !important; color: var(--dim) !important; background: none !important; border: 0 !important; box-shadow: none !important;
+    height: 14px !important; min-width: 0 !important; padding: 0 2px !important; }
+  .mark:first-child { transform: none; }
+  .mark:hover { color: var(--accent) !important; transform: translateX(-50%); }
+  .mark:first-child:hover { transform: none; }
+  #exportModal { position: fixed; inset: 0; background: rgba(10, 3, 18, .75); display: grid; place-items: center; z-index: 10; }
+  #exportModal.hidden { display: none; }
+  .ex-card { width: min(420px, calc(100vw - 32px)); background: var(--panel); border-radius: 22px; padding: 22px; box-shadow: 0 20px 50px rgba(0, 0, 0, .35); }
+  .ex-card h2 { margin: 0 0 6px; font: 900 20px var(--font); letter-spacing: -0.02em; }
+  .ex-card p { margin: 0 0 16px; font-size: 13px; color: var(--dim); }
+  .ex-track { height: 8px; border-radius: 4px; background: rgba(255, 236, 250, .14); overflow: hidden; }
+  #exportBar { height: 100%; width: 0; background: linear-gradient(90deg, var(--mint), var(--accent)); }
+  #exportLabel { margin-top: 10px; font-size: 12px; font-weight: 700; color: var(--dim); }
+  footer { width: min(100%, calc((100vh - 170px) * 16 / 9), 1600px); font-size: 11px; color: var(--dim); line-height: 1.6; }
+  footer a { color: var(--ink); }
+  @media (max-width: 640px) {
+    #marks, .ov-sub { display: none; }
+    #overlay { gap: 10px; }
+    .ov-title { font-size: 15px; }
+    .controls { flex-wrap: wrap; }
+    .track { order: -1; flex-basis: 100%; }
+    .controls .lbl { display: none; }
+  }
+</style>
+<script type="importmap">{ "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }</script>
+</head>
+<body>
+  <header>
+    <h1><b>잘되는 치과는 무엇이 다를까</b> · <i>DISCO 3D</i></h1>
+    <span>105 BPM · 1분 49초 · 2026.11.22 (일) 서울성모병원 대강당</span>
+  </header>
+
+  <div id="stage">
+    <canvas id="out" width="1920" height="1080" aria-label="잘되는 치과는 무엇이 다를까 3D 뮤직비디오: 가사가 빛나는 댄스 플로어 위에 입체 글자로 한 음절씩 나타나고, 치아 모양 미러볼이 돌아갑니다"></canvas>
+    <div id="overlay">
+      <button id="bigPlay" aria-label="재생">
+        <svg viewBox="0 0 24 24"><path d="M5 3.5v17a1 1 0 0 0 1.5.86l14-8.5a1 1 0 0 0 0-1.72l-14-8.5A1 1 0 0 0 5 3.5z"/></svg>
+      </button>
+      <div class="ov-title">잘되는 치과는 무엇이 다를까 · 3D 디스코</div>
+      <div class="ov-sub">사운드를 켜고 보세요 · SPACE 재생/정지 · ←/→ 한 마디 이동 · F 전체화면</div>
+      <div id="status">불러오는 중…</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="btnPlay" data-state="play" aria-label="재생">
+      <svg class="i-play" viewBox="0 0 24 24"><path d="M6 4v16l14-8z"/></svg>
+      <svg class="i-pause" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+    </button>
+    <button id="btnRestart" aria-label="처음부터">
+      <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+    </button>
+    <div id="time">0:00 / 1:48</div>
+    <div class="track">
+      <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="재생 위치">
+      <div id="marks"></div>
+    </div>
+    <button id="btnFull" aria-label="전체화면">
+      <svg viewBox="0 0 24 24"><path d="M4 9V4h5v2H6v3zm10-5h6v5h-2V6h-4zM4 15h2v3h3v2H4zm14 3v-3h2v5h-6v-2z"/></svg>
+    </button>
+    <button id="btnExport"><svg viewBox="0 0 24 24"><path d="M12 3v11l4-4 1.4 1.4L12 17.8 6.6 11.4 8 10l4 4V3zM4 19h16v2H4z"/></svg><span class="lbl">MP4 저장</span></button>
+  </div>
+
+  <footer>
+    대한치과의료관리학회 2026년 11월 종합학술대회 · 2026년 11월 22일(일) 09:30–17:30 · 서울성모병원 대강당(지하 1층) · 사전등록 www.kadap.org<br>
+    음악: &lsquo;잘되는 치과는 무엇이 다를까&rsquo; (iontiger, Suno로 제작). 가사는 보컬 트랙을 분리해 음절 단위로 맞췄고, 3D 장면은 three.js로 실시간 렌더링합니다(매 프레임이 노래 시간의 함수라 재생할 때마다 같은 결과). 연자 사진은 학회 포스터에서 가져왔습니다. 폰트: Bagel Fat One, Pretendard, Monoton (모두 SIL OFL).
+  </footer>
+
+  <div id="exportModal" class="hidden">
+    <div class="ex-card">
+      <h2>MP4로 저장 중</h2>
+      <p>1920×1080 · 60fps · H.264 + AAC. 3D 장면을 프레임 단위로 다시 렌더링하고 노래를 함께 담습니다. 그래픽 카드 성능에 따라 몇 분 걸릴 수 있어요.</p>
+      <div class="ex-track"><div id="exportBar"></div></div>
+      <div id="exportLabel">준비 중…</div>
+    </div>
+  </div>
+
+  <script src="vendor/mp4-muxer.js"></script>
+  <script src="js/lyrics.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
