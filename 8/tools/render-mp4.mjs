@@ -1,5 +1,6 @@
 // Render the motion piece to MP4 using headless Chrome + WebCodecs.
-// usage: node tools/render-mp4.mjs [out.mp4] [fps]
+// usage: node tools/render-mp4.mjs [out.mp4] [fps] [firstFrame] [endFrame]
+// (a frame range renders one segment; join segments with ffmpeg concat and mux song.mp3 back in)
 import { launch } from './cdp.mjs';
 import { serve } from './serve.mjs';
 import { openSync, writeSync, closeSync } from 'node:fs';
@@ -9,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outPath = resolve(process.argv[2] || join(root, 'rewinding-the-film.mp4'));
 const fps = Number(process.argv[3] || 60);
+const f0 = Number(process.argv[4] || 0), f1 = process.argv[5] ? Number(process.argv[5]) : null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 process.env.CDP_QUIET = '1';
@@ -18,7 +20,7 @@ try {
   await b.navigate(web.url + (process.env.QS || ''));
   await b.waitFor('window.__ready', 120000);
   const t0 = Date.now();
-  await b.evaluate(`window.__startExport(${fps})`);
+  await b.evaluate(`window.__startExport(${fps}, ${f0}, ${f1})`);
   let last = -1;
   for (;;) {
     await sleep(1000);

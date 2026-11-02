@@ -175,7 +175,7 @@ function loop() {
 }
 
 /* ---------------- export (WebCodecs → MP4) ---------------- */
-async function exportMP4(fps = 60, onProgress = () => {}) {
+async function exportMP4(fps = 60, onProgress = () => {}, f0 = 0, f1 = null) {
   if (!window.VideoEncoder || !window.Mp4Muxer) throw new Error('이 브라우저는 WebCodecs MP4 내보내기를 지원하지 않습니다 (Chrome 권장).');
   const { Muxer, ArrayBufferTarget } = Mp4Muxer;
   // H.264 where the browser has it (Chrome); VP9-in-MP4 otherwise (e.g. open-source Chromium builds)
@@ -208,15 +208,17 @@ async function exportMP4(fps = 60, onProgress = () => {}) {
     const ad = new AudioData({ format: 'f32-planar', sampleRate: sr, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round((i / sr) * 1e6), data });
     aenc.encode(ad); ad.close();
   }
-  const N = Math.round(DUR * fps);
-  for (let f = 0; f < N; f++) {
+  const N = Math.round(DUR * fps), fEnd = f1 == null ? N : Math.min(N, f1);
+  const px = new Uint8Array(4);
+  for (let f = f0; f < fEnd; f++) {
     if (err) throw err;
     renderAt(f / fps);
+    if (post) { const g = out.getContext("webgl"); g.readPixels(0, 0, 1, 1, g.RGBA, g.UNSIGNED_BYTE, px); } // wait for the GPU so frames do not pile up
     const vf = new VideoFrame(out, { timestamp: Math.round((f * 1e6) / fps), duration: Math.round(1e6 / fps) });
     venc.encode(vf, { keyFrame: f % (fps * 2) === 0 });
     vf.close();
     if (venc.encodeQueueSize > 6) await new Promise((r) => { const chk = () => (venc.encodeQueueSize <= 2 ? r() : setTimeout(chk, 1)); chk(); });
-    if (f % 15 === 0) { onProgress(f / N); await new Promise((r) => setTimeout(r, 0)); }
+    if (f % 15 === 0) { onProgress((f - f0) / (fEnd - f0)); await new Promise((r) => setTimeout(r, 0)); }
   }
   await venc.flush(); await aenc.flush();
   if (err) throw err;
@@ -246,9 +248,9 @@ async function exportUI() {
 /* ---------------- headless hooks ---------------- */
 window.__renderAt = (t) => { renderAt(t); return true; };
 window.__frame = (t, q = 0.9) => { renderAt(t); return out.toDataURL('image/jpeg', q); };
-window.__startExport = (fps = 60) => {
+window.__startExport = (fps = 60, f0 = 0, f1 = null) => {
   window.__progress = 0; window.__mp4 = null; window.__exportErr = null;
-  exportMP4(fps, (p) => (window.__progress = p))
+  exportMP4(fps, (p) => (window.__progress = p), f0, f1)
     .then(async (b) => { window.__mp4 = new Uint8Array(await b.arrayBuffer()); })
     .catch((e) => (window.__exportErr = String(e && e.stack || e)));
   return true;
