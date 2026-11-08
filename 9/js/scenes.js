@@ -667,6 +667,6 @@ function drawEndCard(d) {
   const q = clamp((d - 0.4) / 0.5);
   g.globalAlpha = q;
   stickText('구명조끼부터 입혀 줘', 960, 790, 120, P.orange);
-  text('노래 · 만화 iontiger  ·  made with Suno', 960, 920, { size: 34, w: 700, color: P.ink });
+  text('노래 아울러  ·  만화 헤이토', 960, 920, { size: 40, w: 800, color: P.ink });
   g.globalAlpha = 1;
 }
