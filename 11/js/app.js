@@ -39,8 +39,27 @@ function audioNow() {
   return ac.currentTime - (ac.outputLatency || ac.baseLatency || 0);
 }
 function curT() { return S.playing ? clamp(S.offset + audioNow() - S.startAt, S.offset, DUR) : S.offset; }
+// iPhone/iPad: Web Audio follows the ring/silent switch unless the page asks for media playback.
+// navigator.audioSession (Safari 16.4+) does that; for older iOS a silent looping <audio> element
+// moves the page onto the media channel the same way.
+let unlockEl = null;
+function silentWavURL() {
+  const n = 4000, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+function mediaChannel(on) {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+  if (!/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) || !('ontouchend' in document)) return;
+  if (!unlockEl) { unlockEl = document.createElement('audio'); unlockEl.src = silentWavURL(); unlockEl.loop = true; unlockEl.setAttribute('playsinline', ''); }
+  if (on) unlockEl.play().catch(() => {}); else unlockEl.pause();
+}
 async function play() {
   if (!S.ready) return;
+  mediaChannel(true);
   if (!S.ac) S.ac = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
   await S.ac.resume();
   if (S.offset >= DUR - 0.05) S.offset = 0;
@@ -60,6 +79,7 @@ function pause() {
   S.src.onended = null; try { S.src.stop(); } catch (e) {}
   S.src = null; S.playing = false; S.dirty = true;
   document.body.classList.remove('playing');
+  mediaChannel(false);
   syncUI();
 }
 function toggle() { S.playing ? pause() : play(); }
